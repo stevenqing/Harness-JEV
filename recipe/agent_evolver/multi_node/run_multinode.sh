@@ -75,6 +75,23 @@ MAX_NUM_SEQS=128                        # Qwen3.5 Mamba-hybrid: large seq counts
 VLLM_LOG_DIR="/tmp"
 READY_TIMEOUT_S=1200
 START_ENV_SERVERS=1                     # 1 = RANK 0 brings up env servers (ALF/WS); 0 = assume up
+
+# ── meta-agent backend (multi-node pods can't reach mioffice anthropic gateway) ─
+# cloudml/Volcano pod 够不到 api.llm.mioffice.cn（只解析到内网 10.x）→ 若 pod 挂载了
+# preset 模型，本地 vLLM serve 供 meta-agent 用；否则回退 anthropic 网关（此时须在
+# RANK 0 导出 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL）。resolve_meta() 运行时判定。
+META_MODEL_PATH="/preset-models/public/DeepSeek-V4.1-Flash"
+META_MODEL_NAME="DeepSeek-V4.1-Flash"
+META_PORT=8400
+META_TP=${META_TP:-1}                   # meta 模型 tensor-parallel 卡数（大 MoE OOM 时上调 2/4）
+META_GPU_MEM_UTIL=${META_GPU_MEM_UTIL:-0.90}
+META_MAX_MODEL_LEN=${META_MAX_MODEL_LEN:-32768}
+# resolved in resolve_meta() below:
+META_USE_PRESET=0
+META_MODEL=""
+META_API_BASE=""
+META_GPUS=""
+AGENT_N=0                               # GPUs for agent vLLM + env servers (= gpu_count − META_TP if preset)
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── benchmark selection + per-benchmark defaults (all env-overridable) ────────
@@ -140,8 +157,11 @@ preflight() {
   command -v gcc >/dev/null 2>&1 || { echo "!! missing gcc (vLLM model-inspection compile needs it)"; _fail=1; }
   [ -x "$VLLM_BIN" ] || { echo "!! missing vLLM bin: $VLLM_BIN"; _fail=1; }
   [ -d "$MODEL_PATH" ] || { echo "!! missing model dir: $MODEL_PATH"; _fail=1; }
+  if [ "$META_USE_PRESET" = "1" ]; then
+    [ -f "$META_MODEL_PATH/config.json" ] || { echo "!! missing meta model config.json: $META_MODEL_PATH"; _fail=1; }
+  fi
   [ "$_fail" -ne 0 ] && die "preflight failed — fix above and re-run"
-  log "preflight OK (Python.h + gcc + vLLM + model present)"
+  log "preflight OK (Python.h + gcc + vLLM + model${META_USE_PRESET:+ + meta})  agent_vLLM=$AGENT_N"
 }
 
 # ── pod-local GPU count (no ssh) ──────────────────────────────────────────────
@@ -166,13 +186,57 @@ node_host() {
   fi
 }
 
-# ── vLLM serve (this pod's local GPUs only) ───────────────────────────────────
+# ── meta-agent backend resolution + serve ──────────────────────────────────────
+meta_gpus() {
+  local i n out=""
+  n=$(gpu_count)
+  for (( i = n - META_TP; i < n; i++ )); do
+    out="${out}${out:+,}$i"
+  done
+  echo "$out"
+}
+
+resolve_meta() {
+  local n
+  n=$(gpu_count)
+  if [ -d "$META_MODEL_PATH" ]; then
+    META_USE_PRESET=1
+    META_MODEL="$META_MODEL_NAME"
+    META_API_BASE="http://127.0.0.1:$META_PORT/v1"
+    META_GPUS=$(meta_gpus)
+    AGENT_N=$((n - META_TP))
+    [ "$AGENT_N" -gt 0 ] || die "META_TP=$META_TP >= GPUs=$n leaves no GPU for agent vLLM"
+    log "meta: preset $META_MODEL_PATH → :$META_PORT (TP=$META_TP on GPUs $META_GPUS; agent vLLM ×$AGENT_N)"
+  else
+    META_USE_PRESET=0
+    META_MODEL="${EVOLVER_META_MODEL:-anthropic/volcengine_maas/deepseek-v4-pro}"
+    META_API_BASE="${EVOLVER_META_API_BASE:-${ANTHROPIC_BASE_URL:-https://api.llm.mioffice.cn/anthropic}}"
+    META_GPUS=""
+    AGENT_N=$n
+    log "meta: preset $META_MODEL_PATH absent → anthropic gateway (agent vLLM ×$AGENT_N)"
+  fi
+}
+
+start_meta_vllm() {
+  [ "$META_USE_PRESET" = "1" ] || return 0
+  if vllm_up "$META_PORT"; then log "meta vLLM :$META_PORT already up"; return 0; fi
+  local logf="$VLLM_LOG_DIR/vllm_meta_${META_MODEL_NAME}_r${RANK}_${META_PORT}.log"
+  log "launching meta vLLM :$META_PORT (model $META_MODEL_NAME, TP=$META_TP on GPUs $META_GPUS)"
+  CUDA_VISIBLE_DEVICES="$META_GPUS" setsid "$VLLM_BIN" serve "$META_MODEL_PATH" \
+    --host 127.0.0.1 --served-model-name "$META_MODEL_NAME" --port "$META_PORT" \
+    --gpu-memory-utilization "$META_GPU_MEM_UTIL" --max-model-len "$META_MAX_MODEL_LEN" \
+    --max-num-seqs 16 --tensor-parallel-size "$META_TP" --dtype bfloat16 \
+    --no-enable-log-requests \
+    >"$logf" 2>&1 </dev/null &
+  log "meta vLLM :$META_PORT pid=$!"
+}
+
+# ── vLLM serve (this pod's AGENT_N GPUs only; meta takes the last META_TP) ──────
 start_local() {
-  local ngpu gpu port logf
-  ngpu=$(gpu_count)
-  [ "$ngpu" -gt 0 ] || die "this pod reports 0 GPUs"
-  log "pod host=$(hostname) rank=$RANK: starting $ngpu vLLM server(s) on ports $PORT_BASE..$((PORT_BASE + ngpu - 1))"
-  for (( gpu = 0; gpu < ngpu; gpu++ )); do
+  local gpu port logf
+  [ "$AGENT_N" -gt 0 ] || die "this pod reports 0 GPUs"
+  log "pod host=$(hostname) rank=$RANK: starting $AGENT_N agent vLLM server(s) on ports $PORT_BASE..$((PORT_BASE + AGENT_N - 1))"
+  for (( gpu = 0; gpu < AGENT_N; gpu++ )); do
     port=$((PORT_BASE + gpu))
     logf="$VLLM_LOG_DIR/vllm_${MODEL_NAME}_r${RANK}_${port}.log"
     CUDA_VISIBLE_DEVICES=$gpu setsid "$VLLM_BIN" serve "$MODEL_PATH" $VLLM_FLAGS --port "$port" \
@@ -182,23 +246,21 @@ start_local() {
 
 # every pod endpoint (rank r → gpu g): used by RANK 0 to build --agent-api-bases
 all_endpoints() {
-  local r g ngpu out=""
-  ngpu=$(gpu_count)   # uniform per pod (same pod spec)
+  local r g out=""
   for (( r = 0; r < WORLD_SIZE; r++ )); do
-    for (( g = 0; g < ngpu; g++ )); do
+    for (( g = 0; g < AGENT_N; g++ )); do
       out="${out}${out:+,}http://$(node_host $r):$((PORT_BASE + g))/v1"
     done
   done
   echo "$out"
 }
 
-# cross-pod ALFWorld env-server URLs (one per GPU, port ALF_ENV_PORT_BASE+g)
+# cross-pod ALFWorld env-server URLs (one per agent endpoint, port ALF_ENV_PORT_BASE+g)
 # — same ordering as all_endpoints, so worker i pairs vLLM endpoint i with env i.
 alf_env_urls() {
-  local r g ngpu out=""
-  ngpu=$(gpu_count)
+  local r g out=""
   for (( r = 0; r < WORLD_SIZE; r++ )); do
-    for (( g = 0; g < ngpu; g++ )); do
+    for (( g = 0; g < AGENT_N; g++ )); do
       out="${out}${out:+,}http://$(node_host $r):$((ALF_ENV_PORT_BASE + g))"
     done
   done
@@ -206,7 +268,7 @@ alf_env_urls() {
 }
 
 wait_ready() {
-  log "waiting for all $((WORLD_SIZE * $(gpu_count))) endpoints (timeout ${READY_TIMEOUT_S}s)"
+  log "waiting for all $((WORLD_SIZE * AGENT_N)) agent endpoints (timeout ${READY_TIMEOUT_S}s)"
   local eps url waited code
   eps=$(all_endpoints)
   IFS=',' read -ra urls <<< "$eps"
@@ -221,6 +283,16 @@ wait_ready() {
     done
     log "ready: $url"
   done
+  # meta-agent backend (preset serve; only RANK 0 runs run_evolution, so only it waits)
+  if [ "$META_USE_PRESET" = "1" ]; then
+    waited=0
+    while ! vllm_up "$META_PORT"; do
+      waited=$((waited + 5))
+      [ "$waited" -ge "$READY_TIMEOUT_S" ] && die "meta vLLM :$META_PORT never became ready (see $VLLM_LOG_DIR/vllm_meta_*)"
+      sleep 5
+    done
+    log "ready: meta vLLM :$META_PORT"
+  fi
 }
 
 status() {
@@ -230,11 +302,16 @@ status() {
     code=$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$url/v1/models" 2>/dev/null || echo 000)
     echo "  $url/v1 -> $code"
   done
+  if [ "$META_USE_PRESET" = "1" ]; then
+    code=$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$META_PORT/v1/models" 2>/dev/null || echo 000)
+    echo "  meta http://127.0.0.1:$META_PORT/v1 -> $code ($META_MODEL)"
+  fi
 }
 
 teardown() {
   log "killing this pod's vLLM servers matching MODEL_PATH=$MODEL_PATH"
   pkill -f "vllm serve $MODEL_PATH" 2>/dev/null || true
+  [ "$META_USE_PRESET" = "1" ] && pkill -f "vllm serve $META_MODEL_PATH" 2>/dev/null || true
   sleep 3
   log "teardown done"
 }
@@ -246,10 +323,10 @@ start_env_servers() {
 
   local p split_env waited ready g
   if [ "$BENCH" = alfworld ]; then
-    # ALF env is single-instance stateful → ONE server per GPU on EVERY pod
-    # (bound 0.0.0.0 so RANK 0 can reach them cross-pod): 16 GPUs → 16 servers.
+    # ALF env is single-instance stateful → ONE server per agent endpoint on EVERY
+    # pod (bound 0.0.0.0 so RANK 0 can reach them cross-pod): AGENT_N servers per pod.
     [ "$SPLIT" = heldout ] && split_env=eval_out_of_distribution || split_env=eval_in_distribution
-    for (( g = 0; g < $(gpu_count); g++ )); do
+    for (( g = 0; g < AGENT_N; g++ )); do
       p=$((ALF_ENV_PORT_BASE + g))
       if env_up "$p"; then log "ALF env :$p already up (this pod)"; continue; fi
       ALFWORLD_DATA="$ALF_DATA" ALFWORLD_SPLIT="$split_env" \
@@ -277,7 +354,7 @@ start_env_servers() {
   while true; do
     ready=1
     if [ "$BENCH" = alfworld ]; then
-      for (( g = 0; g < $(gpu_count); g++ )); do env_up $((ALF_ENV_PORT_BASE + g)) || ready=0; done
+      for (( g = 0; g < AGENT_N; g++ )); do env_up $((ALF_ENV_PORT_BASE + g)) || ready=0; done
     else
       env_up "${WS_ENV_PORT:-18090}" || ready=0
     fi
@@ -299,10 +376,10 @@ run_evolution() {
   log "model endpoints: $eps"
   cd "$REPO_DIR"
 
-  # ALFWorld: env URLs + concurrency scale with the cluster (one env server per GPU)
+  # ALFWorld: env URLs + concurrency scale with the cluster (one env server per agent endpoint)
   if [ "$BENCH" = alfworld ]; then
     env_urls="$(alf_env_urls)"
-    conc="${CONCURRENCY:-$((WORLD_SIZE * $(gpu_count)))}"
+    conc="${CONCURRENCY:-$((WORLD_SIZE * AGENT_N))}"
   else
     env_urls="$ENV_URLS"
     conc="$CONCURRENCY"
@@ -314,7 +391,8 @@ run_evolution() {
     alfworld|webshop)
       CMD=( .venv/bin/python -m recipe.agent_evolver.run "$BENCH"
             --num-rounds "$ROUNDS" --num-tasks "$NUM_TASKS" --start "$START" --seed "$SEED"
-            --agent-api-bases "$eps" --env-urls "$env_urls" --run-tag "$RUN_TAG" )
+            --agent-api-bases "$eps" --env-urls "$env_urls" --run-tag "$RUN_TAG"
+            --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" )
       [ "$BENCH" = alfworld ] && CMD+=( --split "$SPLIT" )
       [ -n "$conc" ] && CMD+=( --concurrency "$conc" )
       ;;
@@ -329,8 +407,10 @@ run_evolution() {
 
 case "${1:-run}" in
   run)
+    resolve_meta
     preflight
     start_local
+    [ "$RANK" = "0" ] && start_meta_vllm
     start_env_servers            # ALF: every pod; WS: RANK 0 only
     if [ "$RANK" = "0" ]; then
       wait_ready
@@ -345,8 +425,8 @@ case "${1:-run}" in
       log "worker: orchestrator finished — exiting"
     fi
     ;;
-  start)    preflight; start_local; wait_ready 2>/dev/null || true; echo "ENDPOINTS=$(all_endpoints)" ;;
-  status)   status ;;
-  teardown) teardown ;;
+  start)    resolve_meta; preflight; start_local; [ "$RANK" = "0" ] && start_meta_vllm; wait_ready 2>/dev/null || true; echo "ENDPOINTS=$(all_endpoints)" ;;
+  status)   resolve_meta; status ;;
+  teardown) resolve_meta; teardown ;;
   *)        die "unknown subcommand '$1' (use run|start|status|teardown)" ;;
 esac
