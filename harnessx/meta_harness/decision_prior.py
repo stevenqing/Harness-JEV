@@ -16,6 +16,7 @@ caller (see ``recipe/agent_evolver/decision_prior.py``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +57,7 @@ async def analyze_trajectories(
     model: str = "kev",
     model_kwargs: dict[str, Any] | None = None,
     max_trajectories: int = 96,
+    concurrency: int = 1,
 ) -> list[PriorRow]:
     """Batch-analyze trajectory files through a discrete-decision model.
 
@@ -64,25 +66,33 @@ async def analyze_trajectories(
     ``render_state`` turns that dict into the compact text the model reads.
     One ``decide(state, questions)`` call per trajectory (a single forward
     pass, so this is far cheaper than having the meta-LLM re-read each body).
+
+    ``concurrency`` bounds how many ``decide`` calls run in parallel.  kev/semif
+    stay at 1 (a logit readout is near-instant); the generative ``meta`` backend
+    is ~20s/call, so raising it there collapses the dominant cost.  Result order
+    stays deterministic (sorted files, indexed slots).
     """
-    files = sorted(trajectories_dir.glob("*.md"), key=_sort_key)
-    rows: list[PriorRow] = []
+    files = sorted(trajectories_dir.glob("*.md"), key=_sort_key)[:max_trajectories]
     backend = get_decision_model(model, **(model_kwargs or {}))
-    async with backend:
-        for path in files[:max_trajectories]:
-            fields = parse_trajectory(path)
-            if fields is None:
-                continue
+    rows: list[PriorRow | None] = [None] * len(files)
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def _one(i: int, path: Path) -> None:
+        fields = parse_trajectory(path)
+        if fields is None:
+            return
+        async with sem:
             decisions = await backend.decide(state=render_state(fields), questions=questions)
-            rows.append(
-                PriorRow(
-                    traj_id=path.stem,
-                    goal=str(fields.get("goal", "")),
-                    eval_reason=str(fields.get("eval_reason", "")),
-                    decisions=decisions,
-                )
-            )
-    return rows
+        rows[i] = PriorRow(
+            traj_id=path.stem,
+            goal=str(fields.get("goal", "")),
+            eval_reason=str(fields.get("eval_reason", "")),
+            decisions=decisions,
+        )
+
+    async with backend:
+        await asyncio.gather(*(_one(i, p) for i, p in enumerate(files)))
+    return [r for r in rows if r is not None]
 
 
 def _judge_p(dec: Decision) -> float:

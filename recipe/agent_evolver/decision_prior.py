@@ -136,13 +136,15 @@ async def build_decision_priors(
     base_url: str = "http://127.0.0.1:8090",
     max_trajectories: int = 96,
     model_kwargs: dict | None = None,
+    concurrency: int = 1,
 ) -> DecisionPriors:
     """Render benchmark-agnostic three-axis priors for a benchmark's trajectories.
 
     ``model`` is any registered backend name (default ``"kev"``); pass the same
     name to the runner's ``--decision-backend`` so they stay in sync.  For the
     ``"meta"`` backend, pass ``model_kwargs={"provider": meta_provider}`` so the
-    backend can call the meta model itself.
+    backend can call the meta model itself, and ``concurrency`` > 1 to run the
+    per-trajectory generative judgments in parallel.
     """
     try:
         parse_trajectory, render_state = _PARSERS[benchmark]
@@ -161,6 +163,7 @@ async def build_decision_priors(
         model=model,
         model_kwargs=kwargs,
         max_trajectories=max_trajectories,
+        concurrency=concurrency,
     )
     if not rows:
         _log.warning("no failed trajectories to analyze under %s; priors will be empty", trajectories_dir)

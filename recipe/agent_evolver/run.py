@@ -463,6 +463,14 @@ async def main(argv: list[str] | None = None) -> None:
                     # The "meta" backend needs the meta model itself (not a
                     # sidecar URL) to answer the three-axis questions.
                     model_kwargs = {"provider": meta_provider} if args.decision_backend == "meta" else None
+                    # The meta backend is a generative call (~20s/trajectory),
+                    # so its per-trajectory judgments run in parallel; kev/semif
+                    # are near-instant and stay sequential (concurrency=1).
+                    concurrency = (
+                        int(os.environ.get("EVOLVER_META_JUDGE_CONCURRENCY", "8"))
+                        if args.decision_backend == "meta"
+                        else 1
+                    )
                     priors = await build_decision_priors(
                         benchmark=benchmark,
                         trajectories_dir=traj_dir,
@@ -470,6 +478,7 @@ async def main(argv: list[str] | None = None) -> None:
                         model=args.decision_backend,
                         base_url=args.decision_base_url,
                         model_kwargs=model_kwargs,
+                        concurrency=concurrency,
                     )
                     priors_path = priors.path
                     logger.info("[R%d] decision priors (%s) → %s (lever=%s conf=%.2f)",
