@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -492,10 +493,22 @@ def trim_messages_to_budget(
 
 
 def _make_token_encoder() -> "object | None":
-    """Try to build a tiktoken encoder. Returns None if unavailable."""
+    """Try to build a tiktoken encoder. Returns None if unavailable.
+
+    On offline hosts tiktoken has no cached encoding and ``get_encoding`` blocks
+    indefinitely on a network download (the request carries no timeout). Guard
+    on the cache file so we fall back to the 4-char heuristic instead of hanging
+    at import time.
+    """
     try:
         import tiktoken
 
+        cache_dir = os.environ.get(
+            "TIKTOKEN_CACHE_DIR",
+            os.path.join(os.path.expanduser("~"), ".cache", "tiktoken"),
+        )
+        if not os.path.exists(os.path.join(cache_dir, "cl100k_base.tiktoken")):
+            return None
         return tiktoken.get_encoding("cl100k_base")  # GPT-4 / Claude compatible
     except Exception:
         return None

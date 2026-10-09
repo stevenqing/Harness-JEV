@@ -110,3 +110,16 @@ benchmarks/tau2/show_report.py
 
 doc_think/
 uv.lock
+
+# Local model checkpoints (multi-GB, never committed)
+models/
+
+# WebShop vendored env: local data symlinks (external 3.5G index) + bundled chromedriver binary
+benchmarks/webshop/official_webshop/data/items_human_ins.json
+benchmarks/webshop/official_webshop/data/items_ins_v2.json
+benchmarks/webshop/official_webshop/data/items_shuffle.json
+benchmarks/webshop/official_webshop/search_engine/indexes
+benchmarks/webshop/official_webshop/web_agent_site/envs/chromedriver
+
+# multi-node transient completion markers (cloud job IDs in filename)
+recipe/agent_evolver/multi_node/.done_*

@@ -896,6 +896,7 @@ class EvolveValidator:
         output_dir: Path,
         elapsed: float,
         compute_changeset_fn: Any,
+        decision_lever: str | None = None,
     ) -> ValidateOutcome:
         """Execute validity → policy → advisory.
 
@@ -931,6 +932,8 @@ class EvolveValidator:
             self._novelty(scratch_dir, out_yaml, reports)
             if self._require_evidence:
                 self._evidence(scratch_dir, out_yaml, diff, reports)
+            if decision_lever is not None:
+                self._decision_lever(scratch_dir, out_yaml, decision_lever, reports)
         else:
             logger.info("[validate] noop round (empty changeset) — skipping policy phase")
 
@@ -1216,6 +1219,66 @@ class EvolveValidator:
             )
 
         reports.append(ValidateReport(phase="policy", check="evidence", ok=True))
+
+    def _decision_lever(
+        self,
+        scratch_dir: Path,
+        out_yaml: Path,
+        decision_lever: str,
+        reports: list[ValidateReport],
+    ) -> None:
+        """enforce mode: the authored lever(s) must equal ``decision_lever``.
+
+        Reads the ``lever:`` tags in ``candidates.md`` and the latest journal
+        entry's ``levers`` frontmatter; any mismatch is a hard rejection — the
+        System-1 lever decision is binding, not an overrideable prior.
+        """
+        decision_lever = decision_lever.lower()
+        findings_path = scratch_dir / "DECISION_LEVER_FAIL.md"
+
+        def _fail(offenders: list[str]) -> None:
+            findings_path.write_text(
+                "# System-1 Lever Gate Failure\n\n"
+                f"The System-1 decision model bound this round's lever to "
+                f"`{decision_lever}`, but the authored round used lever(s) "
+                f"{offenders}. In `--decision-mode enforce` the lever decision is "
+                "binding: re-author the config within the bound lever, or rerun "
+                "in `--decision-mode prior` to demote it to an overrideable prior.\n",
+                encoding="utf-8",
+            )
+            reports.append(
+                ValidateReport(
+                    phase="policy",
+                    check="decision_lever",
+                    ok=False,
+                    reason=f"lever {offenders} != bound {decision_lever}",
+                    findings_path=findings_path,
+                )
+            )
+            raise RuntimeError(f"decision-lever gate: {offenders} != {decision_lever}. See {findings_path}.")
+
+        observed: list[str] = []
+
+        candidates_path = scratch_dir / "candidates.md"
+        if candidates_path.is_file():
+            text = candidates_path.read_text(encoding="utf-8", errors="replace")
+            observed += [m.lower() for m in re.findall(r"lever:\s*([a-zA-Z_-]+)", text)]
+
+        if self._memo_path is not None:
+            try:
+                from .journal import latest_entry
+
+                latest = latest_entry(self._memo_path)
+                if latest is not None:
+                    observed += [v.lower() for v in latest.levers]
+            except Exception as exc:  # noqa: BLE001 — best-effort
+                logger.warning("[validate] could not read journal levers: %s", exc)
+
+        offenders = sorted({v for v in observed if v != decision_lever})
+        if offenders:
+            _fail(offenders)
+
+        reports.append(ValidateReport(phase="policy", check="decision_lever", ok=True))
 
     # ----- Phase 3: advisory (never blocks) ----------------------------------
 

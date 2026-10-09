@@ -196,6 +196,18 @@ When the two loops run together, the gains compound: harness evolution lifts the
   <img src="docs/assets/HarnessX_Model_Co_evolution.png" alt="Model-Harness Co-Evolution" width="700"/>
 </p>
 
+### Harness Evolution — Model Scale Scan (Qwen 3.5 4B / 2B / 0.8B)
+
+How much can pure harness evolution (no weight training) lift weak models, and where does it stop working? The same text-protocol evolver was run against Qwen 3.5 at 4B / 2B / 0.8B on ALFWorld and WebShop (6 rounds each). → Reproduce: [`recipe/agent_evolver/`](recipe/agent_evolver/), results in [EVOLUTION.md](recipe/agent_evolver/EVOLUTION.md).
+
+| Model | ALF held-in (baseline→best) | ALF held-out | WS train→test (mean_reward) |
+|---|---|---|---|
+| 4B   | 0.484 → **0.703** | 0.750 | 0.472 → **0.556** → 0.559 |
+| 2B   | 0.109 → **0.250** | 0.219 | 0.550 → **0.646** → 0.656 |
+| 0.8B | 0.000 → **0.078** | 0.000 | 0.016 → **0.394** → 0.343 |
+
+Key finding: **absolute gains collapse with scale, but relative gains rise**; binary-reward tasks (ALFWorld) have a hard capability floor (0.8B plateaus at 0.078 with zero held-out generalization), while continuous-reward tasks (WebShop) still let a 0.8B model be lifted 24× — harness evolution teaches *how to act*, not *how to be capable*.
+
 ---
 
 <a id="structure"></a>
