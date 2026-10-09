@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -58,7 +59,7 @@ async def analyze_trajectories(
     model_kwargs: dict[str, Any] | None = None,
     max_trajectories: int = 96,
     concurrency: int = 1,
-) -> list[PriorRow]:
+) -> tuple[list[PriorRow], float]:
     """Batch-analyze trajectory files through a discrete-decision model.
 
     ``parse_trajectory`` returns a field dict for failed trajectories (or
@@ -71,6 +72,10 @@ async def analyze_trajectories(
     stay at 1 (a logit readout is near-instant); the generative ``meta`` backend
     is ~20s/call, so raising it there collapses the dominant cost.  Result order
     stays deterministic (sorted files, indexed slots).
+
+    Returns ``(rows, elapsed_seconds)`` where ``elapsed_seconds`` is the wall
+    clock spent on the ``decide`` calls — recorded here so the two arms (kev
+    readout vs. meta self-judgment) can be compared on *cost*, not just accuracy.
     """
     files = sorted(trajectories_dir.glob("*.md"), key=_sort_key)[:max_trajectories]
     backend = get_decision_model(model, **(model_kwargs or {}))
@@ -90,9 +95,17 @@ async def analyze_trajectories(
             decisions=decisions,
         )
 
+    started = time.perf_counter()
     async with backend:
         await asyncio.gather(*(_one(i, p) for i, p in enumerate(files)))
-    return [r for r in rows if r is not None]
+    elapsed = time.perf_counter() - started
+    result = [r for r in rows if r is not None]
+    _log.info(
+        "decision-prior judging: model=%s files=%d judged=%d concurrency=%d wall=%.1fs (%.2fs/judged)",
+        model, len(files), len(result), concurrency, elapsed,
+        elapsed / len(result) if result else 0.0,
+    )
+    return result, elapsed
 
 
 def _judge_p(dec: Decision) -> float:
@@ -129,11 +142,14 @@ def render_priors_markdown(
     rows: Sequence[PriorRow],
     questions: Sequence[Question],
     names: Sequence[str],
+    judging_seconds: float | None = None,
 ) -> str:
     """Render the Markdown priors file the meta-agent reads in SOUL step 3.
 
     ``questions`` and ``names`` are position-aligned.  A :class:`JudgeQ` column
     renders p(true); a :class:`ChooseQ` column renders ``argmax (confidence)``.
+    ``judging_seconds``, when given, is stamped into the header so the prior's
+    *cost* (kev readout vs. meta self-judgment) is recorded alongside its values.
     """
     n = len(names)
     is_choice = [isinstance(q, ChooseQ) for q in questions]
@@ -162,7 +178,8 @@ def render_priors_markdown(
         f"{len(rows)} failed trajectory(s) pre-analyzed by a cheap System-1 "
         "decision model. Judge columns are p(true); choice columns are "
         "`argmax (confidence)`; the aggregate row is the round-level mix.\n\n"
-        "**Priors, not ground truth.** Use them to seed step-3 diagnosis, then "
+        + (f"**Judging wall-clock:** {judging_seconds:.1f}s\n\n" if judging_seconds is not None else "")
+        + "**Priors, not ground truth.** Use them to seed step-3 diagnosis, then "
         "verify against the raw trajectories and override where you disagree.\n\n"
         + "\n".join(head + body)
         + "\n"

@@ -125,6 +125,7 @@ class DecisionPriors:
     lever_confidence: float
     lens_failure_p: float
     lens_capability_gap_p: float
+    judging_seconds: float
 
 
 async def build_decision_priors(
@@ -155,7 +156,7 @@ async def build_decision_priors(
 
     kwargs = dict(model_kwargs or {})
     kwargs.setdefault("base_url", base_url)
-    rows = await analyze_trajectories(
+    rows, judging_seconds = await analyze_trajectories(
         trajectories_dir=trajectories_dir,
         questions=AXIS_QUESTIONS,
         parse_trajectory=parse_trajectory,
@@ -169,7 +170,9 @@ async def build_decision_priors(
         _log.warning("no failed trajectories to analyze under %s; priors will be empty", trajectories_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        render_priors_markdown(rows=rows, questions=AXIS_QUESTIONS, names=AXIS_NAMES),
+        render_priors_markdown(
+            rows=rows, questions=AXIS_QUESTIONS, names=AXIS_NAMES, judging_seconds=judging_seconds
+        ),
         encoding="utf-8",
     )
 
@@ -183,6 +186,7 @@ async def build_decision_priors(
             lever_confidence=lever.confidence,
             lens_failure_p=lens_failure,
             lens_capability_gap_p=lens_capability,
+            judging_seconds=judging_seconds,
         )
     return DecisionPriors(
         path=output_path,
@@ -190,4 +194,5 @@ async def build_decision_priors(
         lever_confidence=0.0,
         lens_failure_p=0.0,
         lens_capability_gap_p=0.0,
+        judging_seconds=judging_seconds,
     )

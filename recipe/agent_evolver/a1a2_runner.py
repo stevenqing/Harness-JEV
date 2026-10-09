@@ -112,7 +112,7 @@ async def main() -> None:
         modes = reviewer.GRIDGAMES_MODES
         questions = reviewer.GRIDGAMES_QUESTIONS
 
-    rows = await analyze_trajectories(
+    rows, _elapsed = await analyze_trajectories(
         trajectories_dir=traj_dir,
         questions=questions,
         parse_trajectory=_parse_trajectory,
