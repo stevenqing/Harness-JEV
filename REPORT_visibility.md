@@ -198,7 +198,7 @@ Once you've finished your reasoning, you should choose an admissible action for 
 
 ### 4.5 规模扫描（2B / 0.8B 三轴）——已停
 
-> 同一三轴 kev 先验注入（llm / prior / enforce），只把被进化的 agent 底座从 Qwen3.5-4B 换成 **2B / 0.8B**（kev reviewer :8090 不变）。问的是「kev 先验增益是否随 agent 规模缩放」。脚本 `three_axis_scale_2b_0.8b.sh`，64 worker（K=16/卡）batching，temp=0 确定性 rollout；held-in 6 轮 + 4 个 held-out 探针（baseline / llmbest / priorbest / enforcebest，best = held-in `mean_reward` 最大轮，`--base-config` 重放）。held-in/held-out 口径同 §4.1（ALF in/out-of-distribution）与 §4.2（WS 官方 train=held-in / test=held-out）。
+> 同一三轴 kev 先验注入（llm / prior / enforce），只把被进化的 agent 底座从 Qwen3.5-4B 换成 **2B / 0.8B**（kev reviewer :8090 不变）。问的是「kev 先验增益是否随 agent 规模缩放」。脚本 `archive/scripts/three_axis_scale_2b_0.8b.sh`（已归档），64 worker（K=16/卡）batching，temp=0 确定性 rollout；held-in 6 轮 + 4 个 held-out 探针（baseline / llmbest / priorbest / enforcebest，best = held-in `mean_reward` 最大轮，`--base-config` 重放）。held-in/held-out 口径同 §4.1（ALF in/out-of-distribution）与 §4.2（WS 官方 train=held-in / test=held-out）。
 >
 > **口径**：held-out 探针的 comparison.json `config` 字段恒为 `baseline`（run.py 里 round_idx=0 的标签占位），但实际重放的是 `--base-config` 传入的 held-in best 配置——已核对非 bug。batching 下 temp=0 仍会翻转 ~2/64 近 tie task（±3% 绝对噪声），对下面这些贴地板的小 n 数字要打折读。
 
@@ -282,7 +282,7 @@ Once you've finished your reasoning, you should choose an admissible action for 
 | B1 episodes | `runs/agent_evolver/gridgames/b1_readout/{kev,semif}/episodes.jsonl` | `recipe/agent_evolver/report_b1.py` |
 | floors.gate.uniform | `gridgames/tiers.json` | — |
 | A3 | `runs/evolve/a3_{llm,kev,rule}_s{seed}_{heldin,heldout}/comparison.json` | `recipe/agent_evolver/run.py` |
-| 规模扫描 2B/0.8B | `runs/evolve/{ov3x,ws3x}_{2b,0_8b}_{llm,prior,enforce}_heldin/comparison.json` + `{baseline,llmbest,priorbest,enforcebest}_heldout/comparison.json` | `three_axis_scale_2b_0.8b.sh` |
+| 规模扫描 2B/0.8B | `runs/evolve/{ov3x,ws3x}_{2b,0_8b}_{llm,prior,enforce}_heldin/comparison.json` + `{baseline,llmbest,priorbest,enforcebest}_heldout/comparison.json` | `archive/scripts/three_axis_scale_2b_0.8b.sh` |
 
 每 episode 一条 JSON（environment / backend / level-or-task / episode / `report()` 字段 / 每步概率向量+动作），所有数字可从 episodes + `levels.jsonl`/`tiers.json` 重算。
 
