@@ -2,7 +2,8 @@
 
 > 生成于 2026-10-08。全程不训练/不改任何模型权重；kev 原样用，semif 是冻结 readout。
 > 本报告覆盖已完成的 S2 基座 + Track A(A1/A2 gate GA + kev 先验注入六轮) + Track B(B1)。
-> **A3（三臂 3 seeds）仍在跑**，出结果后回填 §5 三臂表 + P3/P4 判定。**B2 押后**（spec 缺失，见 §9）。
+> **A3（三臂 3 seeds）已停 + rule 臂归档退役**（Phase 2a，见 §5），P3/P4 判 N/A。**B2 押后**（spec 缺失，见 §9）。
+> **规模扫描（2B/0.8B 三轴）已停**（代码精简前主动 kill，0.8B WS 中止）：2B ALF/WS 已出、0.8B ALF 地板 0（三臂 6 轮全 0.000 + 4 探针全 0）——见 §4.5。
 
 ---
 
@@ -195,17 +196,55 @@ Once you've finished your reasoning, you should choose an admissible action for 
 - **enforce（硬绑定）不稳健**：ALF .594 输 llm .781、WS .567 ≈ llm .560。软先验可被覆盖，硬裁决砍掉强模型搜索空间——「硬绑定优于软先验」假设不被支持。
 - 数据位置/重算见 §8，机制与定位见 §10。
 
+### 4.5 规模扫描（2B / 0.8B 三轴）——已停
+
+> 同一三轴 kev 先验注入（llm / prior / enforce），只把被进化的 agent 底座从 Qwen3.5-4B 换成 **2B / 0.8B**（kev reviewer :8090 不变）。问的是「kev 先验增益是否随 agent 规模缩放」。脚本 `three_axis_scale_2b_0.8b.sh`，64 worker（K=16/卡）batching，temp=0 确定性 rollout；held-in 6 轮 + 4 个 held-out 探针（baseline / llmbest / priorbest / enforcebest，best = held-in `mean_reward` 最大轮，`--base-config` 重放）。held-in/held-out 口径同 §4.1（ALF in/out-of-distribution）与 §4.2（WS 官方 train=held-in / test=held-out）。
+>
+> **口径**：held-out 探针的 comparison.json `config` 字段恒为 `baseline`（run.py 里 round_idx=0 的标签占位），但实际重放的是 `--base-config` 传入的 held-in best 配置——已核对非 bug。batching 下 temp=0 仍会翻转 ~2/64 近 tie task（±3% 绝对噪声），对下面这些贴地板的小 n 数字要打折读。
+
+#### 4.5.1 2B ALF（二值 reward = pass rate，64 task）
+
+| arm | held-in best（轮） | held-out（pass） |
+|---|---|---|
+| baseline | .031 (R0) | .047 (3/64) |
+| llm | .172 (R3) | .141 (9/64) |
+| **prior** | .156 (R1) | **.172 (11/64)** |
+| enforce | .125 (R5) | .125 (8/64) |
+
+全在地板附近（pass 个位数），排序 prior > llm > enforce 勉强成立，但离 4B 锚点（§4.1 held-out .844/.781/.594）差一个数量级。
+
+#### 4.5.2 2B WS（连续 reward，64 task）
+
+| arm | held-in best（轮） | held-out reward（pass） |
+|---|---|---|
+| baseline | .473 (R0) | .483 (.141) |
+| llm | .473 (R0) | .504 (.172) |
+| **prior** | .477 (R0) | **.537 (.188)** |
+| enforce | .492 (R5) | .440 (.125) |
+
+排序 prior > llm > baseline > enforce，与 4B 锚点（§4.2 held-out .630/.560）一致。注意：llm / prior 的 held-in best 都是 **R0 baseline**（进化在 mean_reward 上回退，无 held-in 增益可泛化），只有 enforce 真进化出 R5 增量（.431→.492）——可它的 held-out 仍最差。
+
+#### 4.5.3 0.8B（ALF 地板 / WS 中止）
+
+- **ALF（已跑完）**：llm / prior / enforce 三臂 **6 轮 held-in 全 0.000**（mean_reward 0），4 个 held-out 探针（baseline/llmbest/priorbest/enforcebest）pass_rate **全 0.0** —— 0.8B ALF 撞二值地板（一个 task 都过不了，无失败模式可供 kev 标注），三轴 kev 先验在零信号上无效。
+- **WS（中止）**：主动 kill 扫描时 llm 臂还在 meta 中途，`ws3x_0_8b_llm_heldin/` 只留下半截轨迹、无 comparison.json，其余两臂未启动。**0.8B WS 无结果**。
+
+#### 4.5.4 规模扫描小结（三判断）
+
+1. **绝对能力随规模塌**：4B ALF prior .844 → 2B .17 → 0.8B 0；kev 先验救不了二值地板上的模型。
+2. **kev 相对增益也缩**：4B 上 prior−llm ≈ +.06~.07，2B 上只剩 +.03（ALF +.031 / WS +.033），量级掉进 64-task 噪声。
+3. **enforce 持续最弱**：所有有信号的 cell 里 enforce held-out 全垫底/近垫底，与 4B 结论「硬绑定不赢」一致。
+
 ---
 
-## 5. Track A — A3（三臂 3 seeds，进行中）
+## 5. Track A — A3（三臂 3 seeds）—— 已停 + rule 臂归档退役
 
-状态：**已启动**（`a3_three_arm_3seed.sh`，launch 于 2026-10-08 15:36）。三臂 × 3 seeds（1234/2345/3456）：
+状态：**已停 + rule 臂归档（Phase 2a）**。A3 启动于 2026-10-08 15:36（llm/kev/rule 三臂 × 3 seeds 1234/2345/3456），因规模扫描优先而停（`kill -TERM -26689`），最终未续跑。Phase 2 代码精简把 rule 注入臂整线归档：`rule_prior.py` + `a3_three_arm_3seed.sh` → `archive/rule_arm/`，并从 `run.py` 删掉 `--decision-backend rule` 分支。
 
-- `llm`（无 decision backend）/ `kev`（`--decision-backend kev --decision-mode prior`）/ `rule`（`--decision-backend rule`，A2 规则 tagger 注入同一 brief 通道）。
-- held-in 进化 6 轮 × 64 task / held-out 单 rollout 探针（baseline + 每臂 best config）。
-- S1 解码、**不跑 enforce**。rule 臂已端到端 smoke 验证（`build_rule_priors` → `decision_priors.md` → meta evolve，3 failed 轨迹 tagged find=2/acquire=1/other=0）。
+- `llm`（无 decision backend）/ `kev`（`--decision-backend kev --decision-mode prior`）三轴先验，单 seed 结果已由 §4.1（ALF）/ §4.2（WS）覆盖；A3 的多 seed 稳健性未跑。
+- `rule` 臂（`--decision-backend rule`，A2 规则 tagger 注入同一 brief 通道）退役。kev-vs-rule 的 tag 级对比由 §2 A1/A2 gate GA 提供（ALF kev .672 vs rule .352）。
 
-> 出结果后回填三臂 held-out success+reward 带区间 + S4 null 列，判 P3/P4。
+> 影响：§6 的 P3/P4（held-out kev ≥ rule +0.05）不再由 A3 出结果 → 判 N/A。
 
 ---
 
@@ -215,8 +254,8 @@ Once you've finished your reasoning, you should choose an admissible action for 
 |---|---|---|
 | P1 | ALFWorld kev lens 准确率 ≥ 规则 +0.10 | ✅ +0.320 |
 | P2 | gridgames kev−rule ≤0.03 | ✅ 单向（kev 更差 −0.49/−0.12；比「零增量」更尖锐） |
-| P3 | ALFWorld held-out kev ≥ rule +0.05 success | ⏳ A3 出结果 |
-| P4 | WebShop held-out kev ≥ rule +0.03 reward | ⏳ 未跑（WebShop 三轴另线） |
+| P3 | ALFWorld held-out kev ≥ rule +0.05 success | — A3 rule 臂退役（Phase 2a），N/A |
+| P4 | WebShop held-out kev ≥ rule +0.03 reward | — A3 rule 臂退役（Phase 2a），N/A |
 | P5 | Sokoban L8 readout R0 在 floor ±0.05 内 | ✅ −0.013 |
 | P6 | Sokoban L8 evolved readout 出 floor ≥ +0.10 | ⏳ B2 押后 |
 | P7 | Sokoban L8 evolved gen 不出 floor +0.10 | ⏳ B2 押后 |
@@ -243,6 +282,7 @@ Once you've finished your reasoning, you should choose an admissible action for 
 | B1 episodes | `runs/agent_evolver/gridgames/b1_readout/{kev,semif}/episodes.jsonl` | `recipe/agent_evolver/report_b1.py` |
 | floors.gate.uniform | `gridgames/tiers.json` | — |
 | A3 | `runs/evolve/a3_{llm,kev,rule}_s{seed}_{heldin,heldout}/comparison.json` | `recipe/agent_evolver/run.py` |
+| 规模扫描 2B/0.8B | `runs/evolve/{ov3x,ws3x}_{2b,0_8b}_{llm,prior,enforce}_heldin/comparison.json` + `{baseline,llmbest,priorbest,enforcebest}_heldout/comparison.json` | `three_axis_scale_2b_0.8b.sh` |
 
 每 episode 一条 JSON（environment / backend / level-or-task / episode / `report()` 字段 / 每步概率向量+动作），所有数字可从 episodes + `levels.jsonl`/`tiers.json` 重算。
 
