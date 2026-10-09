@@ -61,7 +61,22 @@ kev 是一个**冻结的判别式读头**：一次前向读出「失败机制」
 | `prior`（软先验） | 注入 brief | 注入 brief（可覆盖） | 不启用 | warn + 回退 llm |
 | `enforce`（硬绑定） | 注入 brief | **绑定 + gate 检查** | **candidate retrocheck**（`pass_prob<0.5` 拒绝该轮） | 硬 fail（loud abort） |
 
-数据流：`rollout 失败轨迹 → kev 一次前向打分 → decision_priors.md → 注入 meta brief`（prior）；`enforce` 再把 lever 决策做成绑定 gate、把 intent 做成 candidate 级反事实校验。
+**数据流（System-1 → System-2）**：
+
+```
+失败轨迹（eval_passed == false）
+        │  kev 一次前向（noul 判断 + choice 选项，不生成）
+        ▼
+三轴概率向量 ──prior──▶ decision_priors.md ──注入──▶ meta brief（deepseek 可覆盖）
+        │
+        ├─ lens   失败机制：failure / capability_gap ──────────────┐
+        ├─ lever  修复杠杆：configuration / control / action /      │ 注入 brief
+        │         instruction ──enforce──▶ 绑定 gate ──────────────┘
+        └─ intent 反事实：corrective / transfer / lock ──enforce──▶ candidate retrocheck
+                                                                      （pass_prob < 0.5 → 拒绝该轮）
+```
+
+`prior` 只走注入 brief 一条路（三条轴都软）；`enforce` 额外把 lever 做成绑定 gate、把 intent 做成 candidate 级反事实校验。
 
 > **为什么弱读反而赢**（机制，见 [REPORT §10](../../REPORT_visibility.md)）：meta 的瓶颈不是「能否理解」，而是「以什么认知成本/方差/偏置理解」。kev 判别式逐条读 logit 再聚合，天然把 base rate 数对、把失败模式抽象成可泛化的语义——soft prior 喂给强模型是正则化；硬 gate 越线让弱模型做合成级裁决，反而砍空间。
 
