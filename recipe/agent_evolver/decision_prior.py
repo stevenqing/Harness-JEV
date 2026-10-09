@@ -135,11 +135,14 @@ async def build_decision_priors(
     model: str = "kev",
     base_url: str = "http://127.0.0.1:8090",
     max_trajectories: int = 96,
+    model_kwargs: dict | None = None,
 ) -> DecisionPriors:
     """Render benchmark-agnostic three-axis priors for a benchmark's trajectories.
 
-    ``model`` is any registered jevlike backend name (default ``"kev"``); pass the
-    same name to the runner's ``--decision-backend`` so they stay in sync.
+    ``model`` is any registered backend name (default ``"kev"``); pass the same
+    name to the runner's ``--decision-backend`` so they stay in sync.  For the
+    ``"meta"`` backend, pass ``model_kwargs={"provider": meta_provider}`` so the
+    backend can call the meta model itself.
     """
     try:
         parse_trajectory, render_state = _PARSERS[benchmark]
@@ -148,13 +151,15 @@ async def build_decision_priors(
             f"decision priors not wired for benchmark {benchmark!r}; available: {sorted(_PARSERS)}"
         ) from None
 
+    kwargs = dict(model_kwargs or {})
+    kwargs.setdefault("base_url", base_url)
     rows = await analyze_trajectories(
         trajectories_dir=trajectories_dir,
         questions=AXIS_QUESTIONS,
         parse_trajectory=parse_trajectory,
         render_state=render_state,
         model=model,
-        model_kwargs={"base_url": base_url},
+        model_kwargs=kwargs,
         max_trajectories=max_trajectories,
     )
     if not rows:

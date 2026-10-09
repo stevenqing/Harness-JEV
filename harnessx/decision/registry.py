@@ -13,12 +13,14 @@ from __future__ import annotations
 from typing import Any
 
 from .kev import KevBackend
+from .llm import LlmDecisionBackend
 from .semif import SemifBackend
 from .types import DiscreteDecisionModel
 
 _REGISTRY: dict[str, type] = {
     "kev": KevBackend,
     "semif": SemifBackend,
+    "meta": LlmDecisionBackend,
 }
 
 

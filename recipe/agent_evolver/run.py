@@ -236,10 +236,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         "instead of the programmatic baseline — for held-out generalization probes")
     p.add_argument("--decision-backend", default="llm",
                    help="trajectory-analysis backend for the meta-evolve decision process: "
-                        "'llm' (default — the meta-LLM does all diagnosis itself) or a "
-                        "registered jevlike decision-model name (e.g. 'kev') to inject "
-                        "System-1 priors into the brief. Unknown/offline model backends "
-                        "fall back to 'llm'.")
+                        "'llm' (default — no structured three-axis pre-analysis; the meta-LLM "
+                        "diagnoses trajectories through its normal evolve flow), 'kev' (frozen "
+                        "System-1 read head scores each failed trajectory), or 'meta' (ablation — "
+                        "the meta-LLM itself answers the same three-axis questions per trajectory "
+                        "and the runner aggregates them). Unknown/offline model backends fall back "
+                        "to 'llm'.")
     p.add_argument("--decision-base-url", default="http://127.0.0.1:8090",
                    help="decision-model sidecar base URL (used when --decision-backend != llm)")
     p.add_argument("--decision-mode", default="prior", choices=("prior", "enforce"),
@@ -458,12 +460,16 @@ async def main(argv: list[str] | None = None) -> None:
                     priors_path = evolve_dir / "_meta_scratch" / "decision_priors.md"
                     from .decision_prior import build_decision_priors
 
+                    # The "meta" backend needs the meta model itself (not a
+                    # sidecar URL) to answer the three-axis questions.
+                    model_kwargs = {"provider": meta_provider} if args.decision_backend == "meta" else None
                     priors = await build_decision_priors(
                         benchmark=benchmark,
                         trajectories_dir=traj_dir,
                         output_path=priors_path,
                         model=args.decision_backend,
                         base_url=args.decision_base_url,
+                        model_kwargs=model_kwargs,
                     )
                     priors_path = priors.path
                     logger.info("[R%d] decision priors (%s) → %s (lever=%s conf=%.2f)",

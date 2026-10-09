@@ -20,6 +20,7 @@ logit read, …), so swapping a backend never touches the callers.
 
 from .types import ChooseQ, Decision, DiscreteDecisionModel, JudgeQ, Question
 from .kev import KevBackend
+from .llm import LlmDecisionBackend
 from .semif import SemifBackend
 from .registry import get_decision_model, register
 
@@ -29,6 +30,7 @@ __all__ = [
     "DiscreteDecisionModel",
     "JudgeQ",
     "KevBackend",
+    "LlmDecisionBackend",
     "SemifBackend",
     "Question",
     "get_decision_model",
