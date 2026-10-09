@@ -136,7 +136,7 @@
 ## 6. 下一步
 
 1. **小样本先验** intent retrocheck 是否可靠，再决定 gate 阈值（当前保守 `0.5`）是保持硬 reject 还是降级 advisory。
-2. **三 arm temp=0 对照**（脚本已写好 `three_axis_q0.sh`）：`--decision-mode prior` vs `enforce` vs `llm`，64×6 轮 + held-out 探针，看 enforce 是否 ≥ prior ≥ llm 且不过拟合。启动：`setsid nohup bash three_axis_q0.sh >> /tmp/three_axis_q0.log 2>&1 &`。enforce arm 已在 run.py 里做 pre-flight + 硬 fail，kev 挂会 loud abort 而非静默退化成 prior/llm。
+2. **三 arm temp=0 对照**（脚本已写好 `start_three_axis_infra.sh <bench>` + `three_axis_q0.sh <bench>`，`<bench>` = `alfworld|webshop`，默认 alfworld）：`--decision-mode prior` vs `enforce` vs `llm`，64×6 轮 + held-out 探针，看 enforce 是否 ≥ prior ≥ llm 且不过拟合。启动：`setsid nohup bash three_axis_q0.sh alfworld >> /tmp/three_axis_q0.log 2>&1 &`。enforce arm 已在 run.py 里做 pre-flight + 硬 fail，kev 挂会 loud abort 而非静默退化成 prior/llm。
 3. 若 lever gate 测下来是噪音 → 降级 advisory（只做 lens + intent 两轴硬 gate）。
 
 ---

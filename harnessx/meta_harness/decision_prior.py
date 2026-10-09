@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from ..decision import ChooseQ, Decision, JudgeQ, Question, get_decision_model
+from ..textutil import clip_text
 
 _log = logging.getLogger(__name__)
 
@@ -84,11 +85,6 @@ async def analyze_trajectories(
     return rows
 
 
-def _clip(text: str, n: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= n else text[: n - 1] + "…"
-
-
 def _judge_p(dec: Decision) -> float:
     """p(true) for a judge question (0.0 if absent — shouldn't happen)."""
     return dec.probabilities.get("true", 0.0)
@@ -146,7 +142,7 @@ def render_priors_markdown(
                 agg_cells.append(f"{p:.2f}")
         body.append("| **aggregate** | — | — | " + " | ".join(agg_cells) + " |")
     for r in rows:
-        cells = [r.traj_id, _clip(r.goal, 30), r.eval_reason]
+        cells = [r.traj_id, clip_text(r.goal, 30), r.eval_reason]
         for i, choice in enumerate(is_choice):
             cells.append(_choose_cell(r.decisions[i]) if choice else f"{_judge_p(r.decisions[i]):.2f}")
         body.append("| " + " | ".join(cells) + " |")

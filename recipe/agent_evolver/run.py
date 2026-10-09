@@ -236,10 +236,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         "instead of the programmatic baseline — for held-out generalization probes")
     p.add_argument("--decision-backend", default="llm",
                    help="trajectory-analysis backend for the meta-evolve decision process: "
-                        "'llm' (default — the meta-LLM does all diagnosis itself), 'rule' "
-                        "(the deterministic A2 rule tagger), or a registered jevlike "
-                        "decision-model name (e.g. 'kev') to inject System-1 priors into "
-                        "the brief. Unknown/offline model backends fall back to 'llm'.")
+                        "'llm' (default — the meta-LLM does all diagnosis itself) or a "
+                        "registered jevlike decision-model name (e.g. 'kev') to inject "
+                        "System-1 priors into the brief. Unknown/offline model backends "
+                        "fall back to 'llm'.")
     p.add_argument("--decision-base-url", default="http://127.0.0.1:8090",
                    help="decision-model sidecar base URL (used when --decision-backend != llm)")
     p.add_argument("--decision-mode", default="prior", choices=("prior", "enforce"),
@@ -456,40 +456,28 @@ async def main(argv: list[str] | None = None) -> None:
             if args.decision_backend != "llm":
                 try:
                     priors_path = evolve_dir / "_meta_scratch" / "decision_priors.md"
-                    if args.decision_backend == "rule":
-                        # A3 rule arm: inject the deterministic A2 rule tagger in
-                        # the same brief channel as the kev prior (no model call).
-                        from .rule_prior import build_rule_priors
+                    from .decision_prior import build_decision_priors
 
-                        build_rule_priors(
-                            benchmark=benchmark,
-                            trajectories_dir=traj_dir,
-                            output_path=priors_path,
+                    priors = await build_decision_priors(
+                        benchmark=benchmark,
+                        trajectories_dir=traj_dir,
+                        output_path=priors_path,
+                        model=args.decision_backend,
+                        base_url=args.decision_base_url,
+                    )
+                    priors_path = priors.path
+                    logger.info("[R%d] decision priors (%s) → %s (lever=%s conf=%.2f)",
+                                round_idx, args.decision_backend, priors_path,
+                                priors.lever_argmax, priors.lever_confidence)
+                    if args.decision_mode == "enforce" and priors.lever_argmax is not None:
+                        decision_lever = priors.lever_argmax
+                        decision_lever_confidence = priors.lever_confidence
+                    elif args.decision_mode == "enforce":
+                        logger.warning(
+                            "[R%d] enforce mode but no failed trajectories to bind a lever "
+                            "(lever_argmax is None) — running unbound this round",
+                            round_idx,
                         )
-                        logger.info("[R%d] rule-tagger priors → %s", round_idx, priors_path)
-                    else:
-                        from .decision_prior import build_decision_priors
-
-                        priors = await build_decision_priors(
-                            benchmark=benchmark,
-                            trajectories_dir=traj_dir,
-                            output_path=priors_path,
-                            model=args.decision_backend,
-                            base_url=args.decision_base_url,
-                        )
-                        priors_path = priors.path
-                        logger.info("[R%d] decision priors (%s) → %s (lever=%s conf=%.2f)",
-                                    round_idx, args.decision_backend, priors_path,
-                                    priors.lever_argmax, priors.lever_confidence)
-                        if args.decision_mode == "enforce" and priors.lever_argmax is not None:
-                            decision_lever = priors.lever_argmax
-                            decision_lever_confidence = priors.lever_confidence
-                        elif args.decision_mode == "enforce":
-                            logger.warning(
-                                "[R%d] enforce mode but no failed trajectories to bind a lever "
-                                "(lever_argmax is None) — running unbound this round",
-                                round_idx,
-                            )
                 except Exception as exc:  # noqa: BLE001
                     if args.decision_mode == "enforce":
                         # In enforce mode a silent fallback would defeat the experiment:

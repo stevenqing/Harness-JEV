@@ -23,15 +23,28 @@
 # 每个 arm 的结果与单机 three_axis_q0.sh 一致（temp=0 贪心确定性 → 同一批 64 任务、逐任务
 # 结果不变，只是分摊到 N 卡上，聚合 pass rate 与卡数无关）。
 #
+# benchmark 语义（BENCH=alfworld|webshop，env 或 $1 指定）：
+#   alfworld — run.py --split heldin/heldout（独立 env 池）：
+#     held-in  = eval_in_distribution  env :18082..18082+N-1
+#     held-out = eval_out_of_distribution env :18082+N..（仅 RANK 0 探针期再起）
+#   webshop  — 单一官方 human goal 池（12087 goals, seed 233, 单 env :18090）：
+#     held-in  = 官方 train 切片 goals 1500..1563 → run.py --start 1500
+#     held-out = 官方 test 切片 goals 0..63     → run.py --start 0
+#     （方法学 2026-10-01 拍板：放弃 synthetic/human，改官方 train→test 真 OOD 协议。）
+#     WebShop 只需【每 pod 一个 env server】(:18090，ThreadingHTTPServer 线程安全、每次
+#     /create 独立 uuid 实例可吸收 N 并发 worker)，held-in/held-out 靠 --start 切，
+#     RANK 0 探针阶段【无需再起第二个 env server】——这是与 alfworld 最大的结构差异。
+#
 # -----------------------------------------------------------------------------
 # 提交（在 CloudML 平台填这些，其余都在本脚本内默认好）：
 #   pod 数：     2（1 master + 1 worker）
 #   每 pod GPU： RESOURCE_GPU=8（M402）→ 共 16 卡；脚本自动读，缺省 nvidia-smi
 #   Docker 命令： bash /mnt/llmshared-ssd-hd/shishuqing/Harness-JEV/three_axis_cloudml.sh
+#   benchmark：   BENCH=alfworld（默认）| BENCH=webshop（或 $1）
 #   meta-agent 模型：多机时自动用 pod 挂载的 /preset-models/public/DeepSeek-V4.1-Flash
 #       （本地 vLLM serve :8400），无需 ANTHROPIC_* env；若该路径缺失（本地冒烟）才回退
 #       anthropic 网关（此时才需要 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL）。
-#   可选 env（覆盖默认值）： ROUNDS=6 NUM_TASKS=64 SEED=1234 RUN_TAG=... GPU_MEM_UTIL=0.70
+#   可选 env（覆盖默认值）： ROUNDS=6 NUM_TASKS=64 SEED=... RUN_TAG=... GPU_MEM_UTIL=0.70
 #       META_TP=1 META_GPU_MEM_UTIL=0.90 META_MAX_MODEL_LEN=32768
 # -----------------------------------------------------------------------------
 #
@@ -39,8 +52,9 @@
 #   vLLM ×AGENT_N        :8200..8200+AGENT_N-1   (Qwen3.5-4B, gpu-mem 0.70)
 #   meta vLLM ×1         :8400               (DeepSeek-V4.1-Flash, 最后 META_TP 张卡)
 #   kev ×1               :8090               (4B-Base+LoRA+head, GPU 0)
-#   ALFWorld held-in  ×N :18082..18082+N-1   (eval_in_distribution)
-#   ALFWorld held-out ×N :18082+N..18082+2N-1 (eval_out_of_distribution; 仅 RANK 0 探针期)
+#   alfworld held-in  ×N :18082..18082+N-1   (eval_in_distribution)
+#   alfworld held-out ×N :18082+N..18082+2N-1 (eval_out_of_distribution; 仅 RANK 0 探针期)
+#   webshop  ×1          :18090              (官方 full 集, 12087 human goals, seed 233)
 #
 # 日志：结果在 runs/evolve/<RUN_TAG>_<arm>_heldin/；调试日志（vLLM/kev/env）在
 # runs/logs/<RUN_TAG>/（共享盘，pod 回收不丢，r$RANK 前缀区分两个 pod）。
@@ -49,6 +63,12 @@
 # 共享盘上别人可能 serve 同一个模型路径，pattern-kill 会误伤。
 # =============================================================================
 set -uo pipefail
+
+BENCH="${1:-${BENCH:-alfworld}}"
+case "$BENCH" in
+  alfworld|webshop) ;;
+  *) echo "usage: $0 [alfworld|webshop]" >&2; exit 2 ;;
+esac
 
 # ── 平台注入（cloudml）────────────────────────────────────────────────────────
 RANK=${RANK:-0}
@@ -67,6 +87,11 @@ KEV_REPO="/mnt/llmshared-ssd-hd/shishuqing/kev"
 KEV_RUN="/mnt/llmshared-ssd-hd/shishuqing/models/kev-4b"
 ALF_PY="/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-alfworld/bin/python"
 ALF_DATA="/mnt/llmshared-ssd-hd/cty/data/alfworld"
+# WebShop env server（官方 full 集；ee-webshop conda env 有 Java + spacy）
+WS_PY="/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-webshop/bin/python"
+WS_JAVA_HOME="/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-webshop/lib/jvm"
+WS_DATA="/mnt/llmshared-ssd-hd/chenjinyuan/memory-agent/data/webshop_official_64fa2a5"
+WS_ROOT="$REPO_DIR/benchmarks/webshop/official_webshop"
 PYINC_BUNDLE="/mnt/llmshared-ssd-hd/shishuqing/python310-include"
 # kev 的 base 模型（Qwen3.5-4B-Base）：kev.serve 按 hub id 从 HF cache 解析，集群 pod 的
 # HF cache 是空的 → 启动前 symlink 到共享盘本地模型目录（见 kev_hf_cache）。
@@ -74,11 +99,15 @@ KEV_BASE_HUB_ID="Qwen/Qwen3.5-4B-Base"
 KEV_BASE_REV="1001bb4d826a52d1f399e183466143f4da7b741b"
 KEV_BASE_DIR="/mnt/llmshared-ssd-hd/shishuqing/models/Qwen3.5-4B-Base"
 
-# ── 端口（pod 内，heldin/heldout 不相交）─────────────────────────────────────
+# ── 端口（pod 内）─────────────────────────────────────────────────────────────
 PORT_BASE=8200                          # vLLM
 KEV_PORT=8090                           # kev（两节点都要）
-HELDIN_BASE=18082                       # held-in env servers
-# held-out base 在 GPU 数确定后 = HELDIN_BASE + N_GPU
+if [ "$BENCH" = alfworld ]; then
+  HELDIN_BASE=18082                     # held-in env servers
+  # held-out base 在 GPU 数确定后 = HELDIN_BASE + N_GPU
+else
+  WS_ENV_PORT=18090                     # WebShop env server（每 pod 一个）
+fi
 
 # ── meta-agent 模型：多机 pod 够不到 mioffice anthropic 网关（api.llm.mioffice.cn
 #    只解析到内网 10.x），改用 pod 挂载的 preset 模型本地 vLLM serve。本机/本地冒烟
@@ -98,17 +127,24 @@ MAX_NUM_SEQS=${MAX_NUM_SEQS:-256}       # rollout 每 req 最多 ~1024 tok，256
 # ── 实验参数（env 可覆盖）─────────────────────────────────────────────────────
 ROUNDS=${ROUNDS:-6}
 NUM_TASKS=${NUM_TASKS:-64}
-START=${START:-0}
-SEED=${SEED:-1234}                      # alfworld 默认；复现单机锚点 R0=0.344
+if [ "$BENCH" = alfworld ]; then
+  START=${START:-0}
+  SEED=${SEED:-1234}                    # alfworld 默认；复现单机锚点 R0=0.344
+else
+  SEED=${SEED:-0}                       # webshop 默认（human goal 顺序由 env seed=233 决定）
+  START_TRAIN=${START_TRAIN:-1500}      # held-in 进化切片 = 官方 train goals 1500..1563
+  START_TEST=${START_TEST:-0}           # held-out 探针切片 = 官方 test goals 0..63
+fi
 RUNS="$REPO_DIR/recipe/agent_evolver/runs/evolve"
 DONE_DIR="$REPO_DIR/recipe/agent_evolver/multi_node"   # 共享盘 join 屏障
-PIDFILE="/tmp/three_axis_pids_r$RANK"   # 本 pod 起的精确 PID
+PIDFILE="/tmp/three_axis_${BENCH}_pids_r$RANK"         # 本 pod 起的精确 PID
 
 export EVOLVER_AGENT_TEMPERATURE=0      # 确定性 rollout（贪心）
 
 # ── 共享 RUN_TAG：两 pod 必须一致，否则 join 屏障/结果目录对不上。优先 MASTER_ADDR
 # （平台注入、两 pod 相同，形如 tj-<job>-master-0），剥 -master-N/-worker-N 后缀；
 # 再试本 pod hostname；都不匹配才退回时间戳（不一致，仅单机调试用）。
+if [ "$BENCH" = alfworld ]; then TAGPFX=3axis; else TAGPFX=3axisws; fi
 if [ -z "${RUN_TAG:-}" ]; then
   RUN_TAG=""
   for _h in "${MASTER_ADDR:-}" "$(hostname 2>/dev/null || echo unknown)"; do
@@ -118,8 +154,9 @@ if [ -z "${RUN_TAG:-}" ]; then
       break
     fi
   done
-  [ -z "$RUN_TAG" ] && RUN_TAG="3axis_$(date +%Y%m%d-%H%M%S)"
+  [ -z "$RUN_TAG" ] && RUN_TAG="${TAGPFX}_$(date +%Y%m%d-%H%M%S)"
 fi
+if [ "$BENCH" = alfworld ]; then DONE_PFX=three_axis; else DONE_PFX=three_axis_ws; fi
 
 # ── 调试日志目录（共享盘，pod 回收不丢；r$RANK 前缀区分两个 pod）──────────────
 LOG_DIR="$REPO_DIR/recipe/agent_evolver/runs/logs/$RUN_TAG"
@@ -132,7 +169,7 @@ else
   N_GPU=$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')
 fi
 if ! [[ "$N_GPU" =~ ^[0-9]+$ ]] || [ "$N_GPU" -lt 1 ]; then
-  echo "[3xc][R$RANK] ERROR: cannot detect GPU count (RESOURCE_GPU=$RESOURCE_GPU, nvidia-smi gave '$N_GPU')" >&2
+  echo "[3xc/$BENCH][R$RANK] ERROR: cannot detect GPU count (RESOURCE_GPU=$RESOURCE_GPU, nvidia-smi gave '$N_GPU')" >&2
   exit 1
 fi
 
@@ -153,30 +190,32 @@ resolve_meta() {
     META_API_BASE="http://127.0.0.1:$META_PORT/v1"
     AGENT_N=$((N_GPU - META_TP))
     META_GPUS=$(meta_gpus)
-    echo "[3xc][R$RANK] meta: preset $META_MODEL_PATH → :$META_PORT (TP=$META_TP on GPUs $META_GPUS; agent vLLM ×$AGENT_N)"
+    echo "[3xc/$BENCH][R$RANK] meta: preset $META_MODEL_PATH → :$META_PORT (TP=$META_TP on GPUs $META_GPUS; agent vLLM ×$AGENT_N)"
   else
     META_USE_PRESET=0
     META_MODEL="${EVOLVER_META_MODEL:-anthropic/volcengine_maas/deepseek-v4-pro}"
     META_API_BASE="${EVOLVER_META_API_BASE:-${ANTHROPIC_BASE_URL:-https://api.llm.mioffice.cn/anthropic}}"
     AGENT_N=$N_GPU
     META_GPUS=""
-    echo "[3xc][R$RANK] meta: preset $META_MODEL_PATH absent → anthropic gateway (agent vLLM ×$AGENT_N)"
+    echo "[3xc/$BENCH][R$RANK] meta: preset $META_MODEL_PATH absent → anthropic gateway (agent vLLM ×$AGENT_N)"
   fi
 }
 resolve_meta
 if [ "$AGENT_N" -lt 1 ]; then
-  echo "[3xc][R$RANK] ERROR: META_TP=$META_TP >= N_GPU=$N_GPU leaves no GPU for agent vLLM (AGENT_N=$AGENT_N)" >&2
+  echo "[3xc/$BENCH][R$RANK] ERROR: META_TP=$META_TP >= N_GPU=$N_GPU leaves no GPU for agent vLLM (AGENT_N=$AGENT_N)" >&2
   exit 1
 fi
 
-HELDOUT_BASE=$((HELDIN_BASE + N_GPU))
+if [ "$BENCH" = alfworld ]; then
+  HELDOUT_BASE=$((HELDIN_BASE + N_GPU))
+fi
 
 # ── 每 rank 的 arm 序列 ───────────────────────────────────────────────────────
 # RANK 0：llm 先、enforce 后（串行）；RANK 1：prior。两节点都要 kev。
 case "$RANK" in
   0) MY_ARMS=(llm enforce);;
   1) MY_ARMS=(prior);;
-  *) echo "[3xc][R$RANK] ERROR: RANK=$RANK not in 0..1 — submit as a 2-pod job" >&2; exit 1;;
+  *) echo "[3xc/$BENCH][R$RANK] ERROR: RANK=$RANK not in 0..1 — submit as a 2-pod job" >&2; exit 1;;
 esac
 NEED_KEV=1                              # R0 给 enforce、R1 给 prior
 
@@ -189,8 +228,12 @@ csv_urls() {  # $1 = port base ; $2 = count ; $3 = suffix
   echo "$out"
 }
 APIS=$(csv_urls "$PORT_BASE" "$AGENT_N" "/v1")
-HELDIN_ENVS=$(csv_urls "$HELDIN_BASE" "$N_GPU" "")
-HELDOUT_ENVS=$(csv_urls "$HELDOUT_BASE" "$N_GPU" "")
+if [ "$BENCH" = alfworld ]; then
+  HELDIN_ENVS=$(csv_urls "$HELDIN_BASE" "$N_GPU" "")
+  HELDOUT_ENVS=$(csv_urls "$HELDOUT_BASE" "$N_GPU" "")
+else
+  WS_ENV_URL="http://127.0.0.1:$WS_ENV_PORT"
+fi
 CONC=$AGENT_N
 
 # 集群节点缺 python3.10-dev → 指 gcc 去共享盘头文件；无 CUDA 工具链 → 绕开 FlashInfer JIT
@@ -205,8 +248,8 @@ VLLM_FLAGS="--host 127.0.0.1 --served-model-name $MODEL_NAME \
 --gdn-prefill-backend triton --no-enable-log-requests --max-logprobs 40"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-log()  { echo "[3xc][R$RANK] $(date '+%H:%M:%S') $*"; }
-die()  { echo "[3xc][R$RANK] ERROR: $*" >&2; exit 1; }
+log()  { echo "[3xc/$BENCH][R$RANK] $(date '+%H:%M:%S') $*"; }
+die()  { echo "[3xc/$BENCH][R$RANK] ERROR: $*" >&2; exit 1; }
 vllm_up() { curl -s -m 3 "http://127.0.0.1:$1/v1/models" >/dev/null 2>&1; }
 env_up()  { curl -s -m 3 "http://127.0.0.1:$1/health" >/dev/null 2>&1; }
 kev_up()  { curl -s -m 3 "http://127.0.0.1:$KEV_PORT/v1/models" >/dev/null 2>&1; }
@@ -228,8 +271,14 @@ preflight() {
     [ -x "$KEV_REPO/.venv/bin/python" ] || { echo "!! missing kev venv python: $KEV_REPO/.venv/bin/python"; _fail=1; }
     [ -d "$KEV_RUN" ] || { echo "!! missing kev run dir: $KEV_RUN"; _fail=1; }
   fi
+  if [ "$BENCH" = webshop ]; then
+    [ -x "$WS_PY" ] || { echo "!! missing webshop python: $WS_PY"; _fail=1; }
+    [ -d "$WS_JAVA_HOME" ] || { echo "!! missing webshop JAVA_HOME: $WS_JAVA_HOME"; _fail=1; }
+    [ -f "$WS_DATA/items_shuffle.json" ] || { echo "!! missing webshop items_shuffle.json: $WS_DATA"; _fail=1; }
+    [ -d "$WS_ROOT/web_agent_site" ] || { echo "!! missing webshop root: $WS_ROOT"; _fail=1; }
+  fi
   [ "$_fail" -ne 0 ] && die "preflight failed"
-  log "preflight OK (Python.h + gcc + vLLM + model + kev${META_USE_PRESET:+ + meta})  N_GPU=$N_GPU agent_vLLM=$AGENT_N  arms=[${MY_ARMS[*]}]"
+  log "preflight OK (Python.h + gcc + vLLM + model + kev + $BENCH${META_USE_PRESET:+ + meta})  N_GPU=$N_GPU agent_vLLM=$AGENT_N  arms=[${MY_ARMS[*]}]"
 }
 
 # ── vLLM serve（每卡一个，agent 模型；preset meta 时只起 AGENT_N 个，留最后 META_TP 张给 meta）──
@@ -292,38 +341,63 @@ start_kev() {
   log "kev :$KEV_PORT launched"
 }
 
-# ── ALFWorld env servers（split → base，每卡一个，本地，精确 PID）──────────────
-start_alf_envs() {  # $1 = split env ; $2 = port base
-  local split_env="$1" pbase="$2" g p pid
-  for (( g = 0; g < N_GPU; g++ )); do
-    p=$((pbase + g))
-    if env_up "$p"; then log "ALF $split_env :$p already up"; continue; fi
-    ALFWORLD_DATA="$ALF_DATA" ALFWORLD_SPLIT="$split_env" \
-      nohup "$ALF_PY" "$REPO_DIR/benchmarks/alfworld/env_server.py" --host 127.0.0.1 --port "$p" \
-      > "$LOG_DIR/alfworld_${split_env}_r${RANK}_${p}.log" 2>&1 </dev/null &
+# ── benchmark env servers（alfworld：split→base 每卡一个；webshop：单 :18090）──
+start_envs() {  # $1 $2 = alfworld split + port base（webshop 忽略）
+  local g p pid
+  if [ "$BENCH" = alfworld ]; then
+    local split_env="$1" pbase="$2"
+    for (( g = 0; g < N_GPU; g++ )); do
+      p=$((pbase + g))
+      if env_up "$p"; then log "ALF $split_env :$p already up"; continue; fi
+      ALFWORLD_DATA="$ALF_DATA" ALFWORLD_SPLIT="$split_env" \
+        nohup "$ALF_PY" "$REPO_DIR/benchmarks/alfworld/env_server.py" --host 127.0.0.1 --port "$p" \
+        > "$LOG_DIR/alfworld_${split_env}_r${RANK}_${p}.log" 2>&1 </dev/null &
+      pid=$!
+      track_pid "$pid"
+      log "ALF $split_env :$p pid=$pid"
+    done
+  else
+    if env_up "$WS_ENV_PORT"; then log "WebShop :$WS_ENV_PORT already up"; return 0; fi
+    log "launching WebShop env :$WS_ENV_PORT (official full set, seed 233 — loads ~1-2 min)"
+    JAVA_HOME="$WS_JAVA_HOME" PATH="$WS_JAVA_HOME/bin:$PATH" \
+      WEBSHOP_ROOT="$WS_ROOT" \
+      WEBSHOP_NUM_PRODUCTS=full WEBSHOP_HUMAN_GOALS=1 WEBSHOP_SEED=233 \
+      WEBSHOP_FILE_PATH="$WS_DATA/items_shuffle.json" \
+      WEBSHOP_ATTR_PATH="$WS_DATA/items_ins_v2.json" \
+      nohup "$WS_PY" "$REPO_DIR/benchmarks/webshop/env_server.py" --host 127.0.0.1 --port "$WS_ENV_PORT" \
+      > "$LOG_DIR/webshop_env_r${RANK}_${WS_ENV_PORT}.log" 2>&1 </dev/null &
     pid=$!
     track_pid "$pid"
-    log "ALF $split_env :$p pid=$pid"
-  done
+    log "WebShop :$WS_ENV_PORT pid=$pid"
+  fi
 }
 
 # ── 等本 pod 本地服务就绪 ─────────────────────────────────────────────────────
-wait_local() {  # $1 = "heldin" 或 "both"
-  local mode="$1" waited=0 v e k m ok g
+wait_local() {  # $1 = "heldin" 或 "both"（alfworld；webshop 忽略）
+  local mode="$1" waited=0 v e k m ok g e2
   log "waiting for local infra (mode=$mode) ..."
   while true; do
     v=0; for (( g = 0; g < AGENT_N; g++ )); do vllm_up $((PORT_BASE + g)) && v=$((v+1)); done
-    e=0; for (( g = 0; g < N_GPU; g++ )); do env_up $((HELDIN_BASE + g)) && e=$((e+1)); done
     k=1; [ "$NEED_KEV" = "1" ] && ! kev_up && k=0
     m=1; [ "$META_USE_PRESET" = "1" ] && ! vllm_up "$META_PORT" && m=0
-    ok=1; [ "$v" = "$AGENT_N" ] || ok=0; [ "$e" = "$N_GPU" ] || ok=0; [ "$k" = "1" ] || ok=0; [ "$m" = "1" ] || ok=0
-    if [ "$mode" = "both" ]; then
-      e2=0; for (( g = 0; g < N_GPU; g++ )); do env_up $((HELDOUT_BASE + g)) && e2=$((e2+1)); done
-      [ "$e2" = "$N_GPU" ] || ok=0
+    ok=1; [ "$v" = "$AGENT_N" ] || ok=0; [ "$k" = "1" ] || ok=0; [ "$m" = "1" ] || ok=0
+    if [ "$BENCH" = alfworld ]; then
+      e=0; for (( g = 0; g < N_GPU; g++ )); do env_up $((HELDIN_BASE + g)) && e=$((e+1)); done
+      [ "$e" = "$N_GPU" ] || ok=0
+      if [ "$mode" = "both" ]; then
+        e2=0; for (( g = 0; g < N_GPU; g++ )); do env_up $((HELDOUT_BASE + g)) && e2=$((e2+1)); done
+        [ "$e2" = "$N_GPU" ] || ok=0
+      fi
+      [ "$ok" = "1" ] && { log "local infra up (vLLM $v/$AGENT_N, heldin $e/$N_GPU, kev $k/1, meta $m/1${mode:+ heldout})"; return 0; }
+      waited=$((waited + 5))
+      [ "$waited" -ge 600 ] && die "local infra never ready (vLLM $v/$AGENT_N heldin $e/$N_GPU kev $k/1 meta $m/1 — see $LOG_DIR)"
+    else
+      e=0; env_up "$WS_ENV_PORT" && e=1
+      [ "$e" = "1" ] || ok=0
+      [ "$ok" = "1" ] && { log "local infra up (vLLM $v/$AGENT_N, webshop env $e/1, kev $k/1, meta $m/1)"; return 0; }
+      waited=$((waited + 5))
+      [ "$waited" -ge 900 ] && die "local infra never ready (vLLM $v/$AGENT_N webshop $e/1 kev $k/1 meta $m/1 — see $LOG_DIR)"
     fi
-    [ "$ok" = "1" ] && { log "local infra up (vLLM $v/$AGENT_N, heldin $e/$N_GPU, kev $k/1, meta $m/1${mode:+ heldout})"; return 0; }
-    waited=$((waited + 5))
-    [ "$waited" -ge 600 ] && die "local infra never ready (vLLM $v/$AGENT_N heldin $e/$N_GPU kev $k/1 meta $m/1 — see $LOG_DIR)"
     sleep 5
   done
 }
@@ -340,11 +414,19 @@ arm_flags() {  # $1 = arm name → 输出该 arm 的 decision 参数（无空格
 run_arm() {  # $1 = arm name
   local arm="$1"
   log "=== ARM START ${RUN_TAG}_${arm}_heldin ==="
-  "$PY" -m recipe.agent_evolver.run alfworld --split heldin \
-    --num-rounds "$ROUNDS" --num-tasks "$NUM_TASKS" --start "$START" --seed "$SEED" \
-    --agent-api-bases "$APIS" --env-urls "$HELDIN_ENVS" --concurrency "$CONC" \
-    --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" \
-    --run-tag "${RUN_TAG}_${arm}_heldin" $(arm_flags "$arm")
+  if [ "$BENCH" = alfworld ]; then
+    "$PY" -m recipe.agent_evolver.run alfworld --split heldin \
+      --num-rounds "$ROUNDS" --num-tasks "$NUM_TASKS" --start "$START" --seed "$SEED" \
+      --agent-api-bases "$APIS" --env-urls "$HELDIN_ENVS" --concurrency "$CONC" \
+      --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" \
+      --run-tag "${RUN_TAG}_${arm}_heldin" $(arm_flags "$arm")
+  else
+    "$PY" -m recipe.agent_evolver.run webshop \
+      --num-rounds "$ROUNDS" --num-tasks "$NUM_TASKS" --start "$START_TRAIN" --seed "$SEED" \
+      --agent-api-bases "$APIS" --env-urls "$WS_ENV_URL" --concurrency "$CONC" \
+      --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" \
+      --run-tag "${RUN_TAG}_${arm}_heldin" $(arm_flags "$arm")
+  fi
   log "=== ARM DONE ${RUN_TAG}_${arm}_heldin (exit $?) ==="
 }
 
@@ -361,11 +443,19 @@ PYEOF
 probe() {  # $1 = run_tag ; $2 = base_config yaml
   local tag="$1" cfg="$2"
   log "=== HELDOUT PROBE $tag <- $cfg ==="
-  "$PY" -m recipe.agent_evolver.run alfworld --split heldout \
-    --num-rounds 1 --num-tasks "$NUM_TASKS" --start 0 --seed "$SEED" \
-    --agent-api-bases "$APIS" --env-urls "$HELDOUT_ENVS" --concurrency "$CONC" \
-    --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" \
-    --run-tag "$tag" --base-config "$cfg"
+  if [ "$BENCH" = alfworld ]; then
+    "$PY" -m recipe.agent_evolver.run alfworld --split heldout \
+      --num-rounds 1 --num-tasks "$NUM_TASKS" --start 0 --seed "$SEED" \
+      --agent-api-bases "$APIS" --env-urls "$HELDOUT_ENVS" --concurrency "$CONC" \
+      --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" \
+      --run-tag "$tag" --base-config "$cfg"
+  else
+    "$PY" -m recipe.agent_evolver.run webshop \
+      --num-rounds 1 --num-tasks "$NUM_TASKS" --start "$START_TEST" --seed "$SEED" \
+      --agent-api-bases "$APIS" --env-urls "$WS_ENV_URL" --concurrency "$CONC" \
+      --meta-model "$META_MODEL" --meta-api-base "$META_API_BASE" \
+      --run-tag "$tag" --base-config "$cfg"
+  fi
   log "=== HELDOUT PROBE DONE $tag (exit $?) ==="
 }
 
@@ -387,7 +477,7 @@ PYEOF
       log "$t: NO comparison.json (failed or skipped)"
     fi
   done
-  log "=== THREE-AXIS CLOUDML COMPLETE ==="
+  log "=== THREE-AXIS $BENCH CLOUDML COMPLETE ==="
 }
 
 # ── teardown：只杀本 pod 记录的精确 PID（绝不 pattern-kill）────────────────────
@@ -418,16 +508,21 @@ preflight
 start_vllm
 start_meta_vllm
 start_kev
-start_alf_envs eval_in_distribution "$HELDIN_BASE"
-wait_local heldin
+if [ "$BENCH" = alfworld ]; then
+  start_envs eval_in_distribution "$HELDIN_BASE"
+  wait_local heldin
+else
+  start_envs
+  wait_local
+fi
 
 cd "$REPO_DIR" || die "no repo: $REPO_DIR"
 
 # 跑本 pod 的 arm 序列（R0: llm→enforce 串行；R1: prior），每个 arm 写一个 done 屏障
 for arm in "${MY_ARMS[@]}"; do
   run_arm "$arm"
-  touch "$DONE_DIR/.done_three_axis.$RUN_TAG.$arm"
-  log "arm $arm done → $DONE_DIR/.done_three_axis.$RUN_TAG.$arm"
+  touch "$DONE_DIR/.done_${DONE_PFX}.$RUN_TAG.$arm"
+  log "arm $arm done → $DONE_DIR/.done_${DONE_PFX}.$RUN_TAG.$arm"
 done
 log "my arms done: [${MY_ARMS[*]}]"
 
@@ -435,16 +530,20 @@ log "my arms done: [${MY_ARMS[*]}]"
 if [ "$RANK" = "0" ]; then
   log "joining on prior done-file in $DONE_DIR"
   _waited=0
-  while [ ! -f "$DONE_DIR/.done_three_axis.$RUN_TAG.prior" ]; do
+  while [ ! -f "$DONE_DIR/.done_${DONE_PFX}.$RUN_TAG.prior" ]; do
     _waited=$((_waited + 60))
     [ "$_waited" -ge 86400 ] && die "timed out waiting for prior arm (24h)"
     [ $((_waited % 600)) -eq 0 ] && log "still joining (waited ${_waited}s)"
     sleep 60
   done
-  log "all arms done — bringing up held-out env + running 4 probes"
 
-  start_alf_envs eval_out_of_distribution "$HELDOUT_BASE"
-  wait_local both
+  if [ "$BENCH" = alfworld ]; then
+    log "all arms done — bringing up held-out env + running 4 probes"
+    start_envs eval_out_of_distribution "$HELDOUT_BASE"
+    wait_local both
+  else
+    log "all arms done — running 4 held-out probes (test goals, same :$WS_ENV_PORT)"
+  fi
 
   probe "${RUN_TAG}_baseline_heldout" "$RUNS/${RUN_TAG}_llm_heldin/R0/config.yaml"
 

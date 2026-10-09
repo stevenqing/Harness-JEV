@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from harnessx.decision import JudgeQ, get_decision_model
+from harnessx.textutil import clip_text
 
 _log = logging.getLogger(__name__)
 
@@ -120,15 +121,10 @@ def retro_question(intent: str) -> JudgeQ:
     )
 
 
-def _clip(text: str, n: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= n else text[: n - 1] + "…"
-
-
 def _render_state(block: CandidateBlock) -> str:
     return (
         f"candidate {block.id} [lens: {block.lens} | lever: {block.lever} | intent: {block.intent}]\n"
-        f"proposal:\n{_clip(block.body, 1400)}\n"
+        f"proposal:\n{clip_text(block.body, 1400)}\n"
     )
 
 
