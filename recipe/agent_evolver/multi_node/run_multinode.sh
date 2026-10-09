@@ -13,7 +13,6 @@
 #                          RANK i = worker-{i-1} (4 GPUs each, serve + wait)
 #
 # Benchmarks (set BENCH):
-#   frozenlake | sokoban   → run_gridgames.py   (env is in-process, no env server)
 #   alfworld               → run.py alfworld     (stateful ALF env servers, one per GPU on every pod)
 #   webshop                → run.py webshop      (single WebShop env server, on RANK 0)
 #
@@ -79,19 +78,11 @@ START_ENV_SERVERS=1                     # 1 = RANK 0 brings up env servers (ALF/
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── benchmark selection + per-benchmark defaults (all env-overridable) ────────
-# BENCH: frozenlake | sokoban | alfworld | webshop
-BENCH="${BENCH:-sokoban}"
+# BENCH: alfworld | webshop
+BENCH="${BENCH:-alfworld}"
 
 ROUNDS="${ROUNDS:-6}"
 case "$BENCH" in
-  frozenlake|sokoban)
-    TIER="${TIER:-L16}"                       # L4|L8|L16|L32
-    SPLIT="${SPLIT:-evolve}"                  # evolve|gate|test
-    EPISODES_PER_LEVEL="${EPISODES_PER_LEVEL:-4}"
-    NUM_TASKS="${NUM_TASKS:-0}"               # 0 = all levels in the split
-    CONCURRENCY="${CONCURRENCY:-48}"          # per-endpoint concurrency
-    ENV_URLS=""                               # no env server (in-process ta_env)
-    ;;
   alfworld)
     SPLIT="${SPLIT:-heldin}"                  # heldin|heldout
     NUM_TASKS="${NUM_TASKS:-64}"
@@ -114,7 +105,7 @@ case "$BENCH" in
     ENV_URLS="${ENV_URLS:-http://127.0.0.1:18090}"
     ;;
   *)
-    echo "ERROR: unknown BENCH='$BENCH' (use frozenlake|sokoban|alfworld|webshop)" >&2
+    echo "ERROR: unknown BENCH='$BENCH' (use alfworld|webshop)" >&2
     exit 2
     ;;
 esac
@@ -251,7 +242,6 @@ teardown() {
 # ── env servers (ALF: every pod; WS: RANK 0 only) ────────────────────────────
 
 start_env_servers() {
-  case "$BENCH" in frozenlake|sokoban) return 0 ;; esac
   [ "$START_ENV_SERVERS" = "1" ] || { log "START_ENV_SERVERS=0 — assuming env servers already up"; return 0; }
 
   local p split_env waited ready g
@@ -321,13 +311,6 @@ run_evolution() {
 
   local -a CMD
   case "$BENCH" in
-    frozenlake|sokoban)
-      CMD=( .venv/bin/python -m recipe.agent_evolver.run_gridgames
-            --game "$BENCH" --tier "$TIER" --split "$SPLIT" --num-rounds "$ROUNDS"
-            --episodes-per-level "$EPISODES_PER_LEVEL"
-            --agent-api-bases "$eps" --concurrency "$CONCURRENCY" --run-tag "$RUN_TAG" )
-      [ "$NUM_TASKS" != "0" ] && CMD+=( --num-tasks "$NUM_TASKS" )
-      ;;
     alfworld|webshop)
       CMD=( .venv/bin/python -m recipe.agent_evolver.run "$BENCH"
             --num-rounds "$ROUNDS" --num-tasks "$NUM_TASKS" --start "$START" --seed "$SEED"
@@ -348,7 +331,7 @@ case "${1:-run}" in
   run)
     preflight
     start_local
-    start_env_servers            # ALF: every pod; WS: RANK 0 only; gridgames: no-op
+    start_env_servers            # ALF: every pod; WS: RANK 0 only
     if [ "$RANK" = "0" ]; then
       wait_ready
       run_evolution
