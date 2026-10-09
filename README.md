@@ -208,6 +208,17 @@ How much can pure harness evolution (no weight training) lift weak models, and w
 
 Key finding: **absolute gains collapse with scale, but relative gains rise**; binary-reward tasks (ALFWorld) have a hard capability floor (0.8B plateaus at 0.078 with zero held-out generalization), while continuous-reward tasks (WebShop) still let a 0.8B model be lifted 24× — harness evolution teaches *how to act*, not *how to be capable*.
 
+### Harness Evolution + System-1 Priors (kev three-axis)
+
+Beyond pure harness evolution, a frozen **System-1 readout head (kev)** — one forward pass, no generation, no training — scores each failed trajectory over a three-axis failure taxonomy (*lens × lever × intent*) and injects that as a soft prior into the meta-agent's brief. On held-out splits, the **soft prior beats both the bare meta-LLM and a hard-bound version**:
+
+| benchmark | baseline | llm (no prior) | **prior** (soft) | enforce (hard) |
+|---|---|---|---|---|
+| ALFWorld (held-out pass) | .297 | .781 | **.844** | .594 |
+| WebShop (held-out reward) | .439 | .560 | **.630** | .567 |
+
+→ Method + full reproduction: [`recipe/agent_evolver/README.md`](recipe/agent_evolver/README.md) (one-line infra + runner scripts), results in [REPORT_visibility.md](REPORT_visibility.md).
+
 ---
 
 <a id="structure"></a>
