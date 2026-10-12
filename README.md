@@ -250,7 +250,8 @@ HarnessX/
 │   ├── api/                   # 🌐 FastAPI + SSE for Lab UI
 │   └── cli.py                 # ⌨️ CLI entry point (hx)
 ├── benchmarks/                # 📊 4 integrated + 3 ongoing benchmarks
-├── recipe/                    # 🧪 slime (RL training recipe)
+├── recipe/                    # 🧪 6 recipes (slime / gaia_evolver / agent_evolver / tau2_evolver / tb2_evolver / verl_harnessX)
+│   └── agent_evolver/         #    ⚗️ harness-only evolution + kev System-1 prior → see its [README](recipe/agent_evolver/README.md)
 ├── examples/                  # 📖 coding / research / assistant / custom_processor
 ├── extensions/                # 🔌 Skills (docx, pdf, pptx, xlsx)
 ├── frontend/                  # 🖥️ Lab UI (React + TypeScript + Tailwind)
