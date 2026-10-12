@@ -5,6 +5,7 @@
 #   ALFWorld held-in  x4 :18082-18085 (eval_in_distribution, game_idx 0-63)
 #   ALFWorld held-out x4 :18086-18089 (eval_out_of_distribution, game_idx 0-63)
 #   WebShop official  x1 :18090      (118万 products, 12087 human goals, seed 233)
+#   ScienceWorld pool x1 :18091      (py3.8, 16 spawned workers)
 #
 # Usage:  bash benchmarks/start_jev_infra.sh
 set -uo pipefail
@@ -14,6 +15,7 @@ MODEL=/mnt/llmshared-ssd-hd/shishuqing/models/Qwen3.5-4B
 VLLM=/mnt/llmshared-ssd-hd/shishuqing/.venv/bin/vllm
 ALF_PY=/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-alfworld/bin/python
 WS_PY=/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-webshop/bin/python
+SCW_PY=/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-sciworld/bin/python
 JAVA_HOME=/mnt/llmshared-ssd-hd/hanguangzeng/miniconda3/envs/ee-webshop/lib/jvm
 ALF_DATA=/mnt/llmshared-ssd-hd/cty/data/alfworld
 WS_DATA=/mnt/llmshared-ssd-hd/chenjinyuan/memory-agent/data/webshop_official_64fa2a5
@@ -59,6 +61,16 @@ else
     WEBSHOP_ATTR_PATH="$WS_DATA/items_ins_v2.json" \
     setsid nohup "$WS_PY" "$REPO/benchmarks/webshop/env_server.py" --port 18090 \
     > /tmp/webshop_env_server_18090.log 2>&1 &
+fi
+
+# ── ScienceWorld env server (py3.8 pool) ─────────────────────────────────────
+if env_up 18091; then
+  echo "[infra] ScienceWorld :18091 already up"
+else
+  echo "[infra] launching ScienceWorld :18091 (16-worker pool)"
+  setsid nohup "$SCW_PY" "$REPO/benchmarks/sciworld/env_server.py" \
+    --splits "$REPO/recipe/agent_evolver/envs/sciworld/splits.json" --port 18091 \
+    > /tmp/sciworld_env_server_18091.log 2>&1 &
 fi
 
 echo "[infra] all launches issued"

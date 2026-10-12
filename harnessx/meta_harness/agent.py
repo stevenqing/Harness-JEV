@@ -544,10 +544,7 @@ class MetaAgent:
         replay_model: "ModelConfig | None" = None,
         replay_max_cost_usd: float | None = 0.5,
         replay_timeout_s: float = 300.0,
-        replay_mode: str = "synthetic_task",
         decision_priors_path: Path | None = None,
-        decision_lever: str | None = None,
-        decision_lever_confidence: float | None = None,
     ) -> Path:
         """Run one meta-agent pass. Returns path to ``output_dir/config.yaml``.
 
@@ -578,8 +575,6 @@ class MetaAgent:
             output_dir=output_dir,
             scratch_dir=scratch_dir,
             decision_priors_path=decision_priors_path,
-            decision_lever=decision_lever,
-            decision_lever_confidence=decision_lever_confidence,
         )
 
         # Build the harness for this round.
@@ -678,7 +673,6 @@ class MetaAgent:
             output_dir=output_dir,
             elapsed=elapsed,
             compute_changeset_fn=compute_changeset,
-            decision_lever=decision_lever,
         )
 
         logger.info("[evolve] produced %s in %.1fs", out_yaml, elapsed)
@@ -694,8 +688,6 @@ class MetaAgent:
         output_dir: Path,
         scratch_dir: Path,
         decision_priors_path: Path | None = None,
-        decision_lever: str | None = None,
-        decision_lever_confidence: float | None = None,
     ) -> tuple[Path, Path | None]:
         """Write TASK.md + (when journal exists) CONTEXT.md. Return both paths."""
         context_path: Path | None = None
@@ -722,8 +714,6 @@ class MetaAgent:
                 output_dir=output_dir,
                 context_path=context_path,
                 decision_priors_path=decision_priors_path,
-                decision_lever=decision_lever,
-                decision_lever_confidence=decision_lever_confidence,
             ),
             encoding="utf-8",
         )
@@ -737,8 +727,6 @@ class MetaAgent:
         output_dir: Path,
         context_path: Path | None = None,
         decision_priors_path: Path | None = None,
-        decision_lever: str | None = None,
-        decision_lever_confidence: float | None = None,
     ) -> str:
         memo_line = f"- `memo_path`: `{self.memo_path}`" if self.memo_path is not None else "- `memo_path`: (not set)"
         context_section = ""
@@ -759,15 +747,6 @@ class MetaAgent:
                 "forming your diagnosis; it is a PRIOR, not ground truth — verify against "
                 "the raw trajectories and override where you disagree.\n"
             )
-        lever_section = ""
-        if decision_lever is not None:
-            conf = "" if decision_lever_confidence is None else f" confidence={decision_lever_confidence:.2f}"
-            lever_section = (
-                f"- `SYSTEM-1 LEVER DECISION` (binding): this round's lever is "
-                f"`{decision_lever}` ({conf}). Author *within* this lever — do NOT re-choose. "
-                f"Every candidate's `lever:` tag in `candidates.md` and the journal entry's "
-                f"`levers` frontmatter MUST be `{decision_lever}`.\n"
-            )
         return (
             "# Evolve Brief\n\n"
             f"- `current_config`: `{current_config_path}`\n"
@@ -776,7 +755,6 @@ class MetaAgent:
             f"{memo_line}\n"
             f"{context_section}"
             f"{priors_section}"
-            f"{lever_section}"
             f"- budget: {self.max_cost_usd} USD, {self.max_steps} steps, "
             f"{self.wall_clock_s:.0f}s wall-clock\n\n"
             "## Deliverables (all under `output_dir`)\n\n"
@@ -840,11 +818,9 @@ class MetaAgent:
             "   `cited_candidates` frontmatter must reference ≥1 of those\n"
             "   IDs. Prevents shipping config changes without linked\n"
             "   evidence.\n"
-            "4. **replay** — by default runs a synthetic smoke task\n"
-            "   (`replay_mode=synthetic_task`): executes one tiny fixed\n"
-            "   task through the run loop and fails on exception / timeout /\n"
-            "   `exit_reason=error`. Optional `replay_mode=config_only`\n"
-            "   keeps bind-only checking.\n"
+            "4. **replay** — by default runs a synthetic smoke task:\n"
+            "   executes one tiny fixed task through the run loop and fails\n"
+            "   on exception / timeout / `exit_reason=error`.\n"
         )
 
     @staticmethod

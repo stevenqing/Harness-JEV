@@ -12,7 +12,7 @@ Endpoints:
   POST /create           -> {"env_id": str, "task_id": int, "observation": str,
                              "available_actions": {...}, "instruction": str}
   POST /step             -> {"observation": str, "reward": float, "done": bool,
-                             "available_actions": {...}}
+                             "available_actions": {...}, "reward_info": dict|None}
   POST /destroy          -> {"status": "ok"}
 """
 from __future__ import annotations
@@ -96,13 +96,23 @@ class EnvironmentRegistry:
     def step(self, env_id: str, action: str) -> dict:
         record = self._get_record(env_id)
         with record.lock:
+            # Capture the session id *before* stepping: `env.step` calls
+            # `reset()` on done, which reassigns `env.session` to a fresh random
+            # id.  The buy-time reward decomposition lives in the *old* session's
+            # `verbose_info` (set by SimServer.done), so read it by the pre-step id.
+            session_id_before = record.env.session
             observation, reward, done, info = record.env.step(action)
             available_actions = {} if done else record.env.get_available_actions()
+            reward_info = None
+            if done:
+                sess = record.env.server.user_sessions.get(session_id_before, {})
+                reward_info = sess.get("verbose_info")
         return {
             "observation": observation,
             "reward": float(reward),
             "done": bool(done),
             "info": dict(info or {}),
+            "reward_info": reward_info,
             "available_actions": available_actions,
         }
 

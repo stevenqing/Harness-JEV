@@ -16,7 +16,7 @@ from typing import Sequence
 
 import httpx
 
-from .types import ChooseQ, Decision, DiscreteDecisionModel, JudgeQ, Question
+from .types import Decision, JudgeQ, Question
 
 _log = logging.getLogger(__name__)
 

@@ -25,7 +25,6 @@ Aggregators ignore the prose; they only read the frontmatter.
 
 Public API:
 
-- ``append_entry(journal_path, entry)`` — append a new round section.
 - ``read_entries(journal_path)`` — iterate parsed entries (frontmatter
   only; body kept as raw string).
 - ``fill_gating(journal_path, round_idx, outcome, attribution)`` —
@@ -44,8 +43,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -119,78 +117,6 @@ class JournalEntry:
         if isinstance(value, dict):
             return {str(k): str(v) for k, v in value.items()}
         return {}
-
-
-@dataclass
-class JournalEntrySpec:
-    """What the agent writes to append a new round.
-
-    ``round``, ``hypothesis_id``, ``levers``, ``predicted_affected``
-    are required. ``label`` becomes the ``## Round N —`` heading text.
-    ``prose`` is the free markdown body. ``extra_frontmatter`` lets
-    benchmarks add fields without schema changes here.
-    """
-
-    round: int
-    label: str
-    hypothesis_id: str
-    levers: list[str]
-    predicted_affected: list[str]
-    prose: str
-    extra_frontmatter: dict[str, Any] = field(default_factory=dict)
-
-
-# ─── Append ───────────────────────────────────────────────────────────────
-
-
-def append_entry(journal_path: Path, entry: JournalEntrySpec) -> None:
-    """Append one ``## Round N`` section to ``journal_path``.
-
-    The entry's ``round`` must not already be present — duplicate
-    rounds raise ``ValueError`` so a buggy orchestrator doesn't
-    silently double-write and break attribution.
-    """
-    journal_path = Path(journal_path)
-
-    for lever in entry.levers:
-        if lever.lower() not in _VALID_LEVERS:
-            raise ValueError(f"unknown lever {lever!r}; valid: {sorted(_VALID_LEVERS)}")
-
-    if journal_path.is_file():
-        existing = list(read_entries(journal_path))
-        for e in existing:
-            if e.round == entry.round:
-                raise ValueError(f"journal already has a Round {entry.round} section")
-
-    # Microsecond precision: same-second double appends in tests / fast
-    # retries remain distinguishable in audit logs even though append
-    # order is the authoritative sort key.
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    fm = {
-        "round": entry.round,
-        "timestamp": now,
-        "hypothesis_id": entry.hypothesis_id,
-        "levers": [lev.lower() for lev in entry.levers],
-        "predicted_affected": list(entry.predicted_affected),
-        "gating_outcome": "pending",
-        "gating_attribution": "pending",
-    }
-    fm.update(entry.extra_frontmatter)
-
-    yaml_block = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).rstrip()
-
-    section = (
-        f"## Round {entry.round} — {entry.label}\n\n"
-        f"{_FRONTMATTER_OPEN}\n{yaml_block}\n{_FRONTMATTER_CLOSE}\n\n"
-        f"{entry.prose.rstrip()}\n"
-    )
-
-    journal_path.parent.mkdir(parents=True, exist_ok=True)
-    mode = "a" if journal_path.is_file() else "w"
-    with journal_path.open(mode, encoding="utf-8") as f:
-        if mode == "a":
-            f.write("\n")
-        f.write(section)
 
 
 # ─── Read ─────────────────────────────────────────────────────────────────
@@ -451,7 +377,10 @@ def build_context(
             elif outcome == "reverted":
                 lever_counts[lever]["reverted"] += 1
             attr = e.gating_attribution
-            predicted = e.predicted_affected
+            # Attribution is now fliprate-based (run.py computes it from
+            # fliprate_predicted); read the same list here so lever precision
+            # aligns with what was actually attributed, not meta's raw guess.
+            predicted = e.frontmatter.get("fliprate_predicted") or e.predicted_affected
             round_hits = 0
             round_attributed = 0
             if attr and predicted:
@@ -529,7 +458,7 @@ def build_context(
     for e in recent:
         levers_str = ",".join(e.levers) or "?"
         outcome = e.gating_outcome
-        pred = len(e.predicted_affected)
+        pred = len(e.frontmatter.get("fliprate_predicted") or e.predicted_affected)
         attr = e.gating_attribution
         if attr:
             flipped = sum(1 for v in attr.values() if v == "flipped")
@@ -773,8 +702,6 @@ def _render_recent_changesets(recent: list["JournalEntry"]) -> list[str]:
 
 __all__ = [
     "JournalEntry",
-    "JournalEntrySpec",
-    "append_entry",
     "read_entries",
     "latest_entry",
     "fill_gating",

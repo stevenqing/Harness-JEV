@@ -67,6 +67,15 @@ def render_frontmatter(record: dict, max_steps: int) -> str:
     if not eval_passed:
         fields.append(("final_obs", record.get("final_obs") or ""))
 
+    # WebShop: the env computes the reward decomposition (``reward_info``) only at
+    # buy time; persist it so the progress-diagnosis oracle can be recovered
+    # post-hoc from the ``.md`` (absent on ALFWorld / TextCraft / ScienceWorld).
+    if "reward_info" in record:
+        fields.append(("reward_info", record.get("reward_info")))
+
+    for k, v in (record.get("frontmatter_extra") or {}).items():
+        fields.append((k, v))
+
     lines = ["---"]
     for k, v in fields:
         lines.append(f"{k}: {_scalar(v)}")
@@ -100,6 +109,22 @@ def render_body(record: dict) -> str:
         lines.append("```")
         lines.append(f"**Extracted action**: `{step.get('action', '')}`  "
                      f"(invalid={bool(step.get('invalid'))})")
+        # Benchmark-specific step info (TextCraft / ScienceWorld) — rendered only
+        # when present so ALFWorld / WebShop bodies are unchanged.
+        if "raw_action" in step:
+            lines.append(f"**Raw action**: `{step.get('raw_action', '')}`")
+        if "env_message" in step:
+            lines.append(f"**Env return**: {step.get('env_message', '')}")
+        if "inventory" in step:
+            lines.append(f"**Inventory**: {_scalar(step.get('inventory', {}))}")
+        if "in_admissible" in step:
+            lines.append(f"**in_admissible**: {bool(step.get('in_admissible'))}")
+        if "score" in step:
+            lines.append(f"**Score**: {step.get('score', '')}")
+        if "in_valid" in step:
+            lines.append(f"**in_valid**: {bool(step.get('in_valid'))}")
+        if "auto_disambiguated" in step:
+            lines.append(f"**auto_disambiguated**: {bool(step.get('auto_disambiguated'))}")
     return "\n".join(lines)
 
 

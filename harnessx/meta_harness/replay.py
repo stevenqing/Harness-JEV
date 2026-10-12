@@ -21,20 +21,13 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..core.harness import BaseTask, HarnessConfig
+    from ..core.harness import HarnessConfig
     from ..core.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
-
-
-# Retained for backward compatibility with recipes that still pass a
-# ``task_loader`` to ``MetaAgent.evolve``. The argument is ignored now
-# (synthetic-task replay needs no benchmark task loader), but keeping
-# the alias avoids import errors in callers.
-TaskLoader = Callable[[str], Awaitable["BaseTask"]]
 
 
 @dataclass
@@ -205,15 +198,6 @@ async def run_replay_gate_strict(
     max_steps: int | None = None,
     max_cost_usd: float | None = None,
     timeout_s: float = 20.0,
-    # Kept for backward-compat with older callers (agent.py / recipes
-    # that used to pass these for the removed ``task_replay`` mode).
-    # All ignored — gate is now fixed at synthetic-task mode.
-    trajectories_dir: Path | None = None,
-    task_loader: "TaskLoader | None" = None,
-    max_tasks: int = 0,
-    predicted_task_ids: list[str] | None = None,
-    regression_probe_tasks: int = 0,
-    replay_mode: str = "synthetic_task",
 ) -> dict:
     """Strict-mode synthetic-task replay gate used by the evolve orchestrator.
 
@@ -224,19 +208,10 @@ async def run_replay_gate_strict(
     - On pass, removes any stale ``REPLAY_FAIL.md`` from a prior round.
 
     Returns the pass dict (with ``ok=True``) — on fail it raises instead.
-    The ``replay_mode`` argument is accepted for compatibility but only
-    ``"synthetic_task"`` remains; other values log a warning and fall
-    through to synthetic mode.
     """
     from .validate_workflow import StrictValidationError
 
     stale_fail = scratch_dir / "REPLAY_FAIL.md"
-
-    if replay_mode != "synthetic_task":
-        logger.warning(
-            "[replay_gate] replay_mode=%r is no longer supported; running synthetic-task gate instead",
-            replay_mode,
-        )
 
     report = await run_synthetic_task_smoke_gate(
         cfg,
@@ -286,7 +261,6 @@ async def run_replay_gate_strict(
 
 
 __all__ = [
-    "TaskLoader",
     "ReplayOutcome",
     "ReplayReport",
     "run_synthetic_task_smoke_gate",

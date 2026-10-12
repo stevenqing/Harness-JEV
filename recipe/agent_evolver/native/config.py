@@ -84,6 +84,14 @@ def make_webshop_baseline_config() -> HarnessConfig:
     return _config_for_spec(HarnessSpec(system_prompt=QWEN_SYSTEM, guidance=""))
 
 
+def make_textcraft_baseline_config() -> HarnessConfig:
+    return _config_for_spec(HarnessSpec(system_prompt=QWEN_SYSTEM, guidance=""))
+
+
+def make_sciworld_baseline_config() -> HarnessConfig:
+    return _config_for_spec(HarnessSpec(system_prompt=QWEN_SYSTEM, guidance=""))
+
+
 # ── Config → HarnessSpec ─────────────────────────────────────────────────────
 
 

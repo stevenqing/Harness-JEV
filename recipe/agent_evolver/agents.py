@@ -25,31 +25,15 @@ from harnessx.providers.litellm_provider import LiteLLMProvider
 
 from . import processors
 from .spec import (
-    AGENT_API_BASE,
-    AGENT_ENABLE_THINKING,
-    AGENT_MAX_TOKENS,
-    AGENT_MODEL,
-    AGENT_TEMPERATURE,
-    AGENT_TOP_P,
     ALF_MAX_STEPS,
+    SCIWORLD_MAX_STEPS,
+    TEXTCRAFT_MAX_STEPS,
     WS_MAX_STEPS,
     HarnessSpec,
 )
 
 ALFWORLD_ENV_URL = os.environ.get("EVOLVER_ALFWORLD_ENV_URL", "http://127.0.0.1:18082")
 WEBSHOP_ENV_URL = os.environ.get("EVOLVER_WEBSHOP_ENV_URL", "http://127.0.0.1:18081")
-
-
-def make_agent_provider() -> LiteLLMProvider:
-    return LiteLLMProvider(
-        model=AGENT_MODEL,
-        api_base=AGENT_API_BASE,
-        api_key="EMPTY",
-        temperature=AGENT_TEMPERATURE,
-        top_p=AGENT_TOP_P,
-        max_tokens=AGENT_MAX_TOKENS,
-        extra_body={"chat_template_kwargs": {"enable_thinking": AGENT_ENABLE_THINKING}},
-    )
 
 
 async def _complete(provider: LiteLLMProvider, system: str, user: str) -> str:
@@ -112,6 +96,56 @@ Your admissible actions of the current situation are:
 Now it's your turn to take one action for the current step.
 You should first reason step-by-step about the current situation, then think carefully which admissible action best advances the shopping goal. This reasoning process MUST be enclosed within <think> </think> tags.
 Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags."""
+
+TEXTCRAFT_TEMPLATE_NO_HIS = """\
+You are an expert agent crafting items in a Minecraft-like text environment. Your task is to: craft {goal}.
+Here are the crafting commands you can use:
+{commands_text}
+Rules: always give a quantity, e.g. "get 1 lapis lazuli" or "craft 1 golden carrot using 8 gold nugget, 1 carrot". Do not say whether an item comes from your inventory or the environment. Use only the recipes given above.
+{skills}
+Your current observation is: {current_observation}
+Your admissible actions of the current situation are: [{admissible_actions}].
+
+Now it's your turn to take an action.
+You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags.
+Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags."""
+
+TEXTCRAFT_TEMPLATE = """\
+You are an expert agent crafting items in a Minecraft-like text environment. Your task is to: craft {goal}.
+Here are the crafting commands you can use:
+{commands_text}
+Rules: always give a quantity, e.g. "get 1 lapis lazuli" or "craft 1 golden carrot using 8 gold nugget, 1 carrot". Do not say whether an item comes from your inventory or the environment. Use only the recipes given above.
+{skills}
+Prior to this step, you have already taken {step_count} step(s). Below are the most recent {history_length} observations and the corresponding actions you took: {action_history}
+You are now at step {current_step} and your current observation is: {current_observation}
+Your admissible actions of the current situation are: [{admissible_actions}].
+
+Now it's your turn to take an action.
+You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags.
+Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags."""
+
+SCIWORLD_TEMPLATE_NO_HIS = """\
+You are an expert agent operating in the ScienceWorld environment, a text-based simulation of science experiments. Your task is to: {task_description}
+{skills}
+Your current observation is: {current_observation}
+Valid action templates (replace OBJ and LOC with objects or locations): {action_templates}
+Objects you can currently see: {visible_objects}
+
+Now it's your turn to take an action.
+You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags.
+Once you've finished your reasoning, you should choose one valid action for current step and present it within <action> </action> tags."""
+
+SCIWORLD_TEMPLATE = """\
+You are an expert agent operating in the ScienceWorld environment, a text-based simulation of science experiments. Your task is to: {task_description}
+{skills}
+Prior to this step, you have already taken {step_count} step(s). Below are the most recent {history_length} observations and the corresponding actions you took: {action_history}
+You are now at step {current_step} and your current observation is: {current_observation}
+Valid action templates (replace OBJ and LOC with objects or locations): {action_templates}
+Objects you can currently see: {visible_objects}
+
+Now it's your turn to take an action.
+You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags.
+Once you've finished your reasoning, you should choose one valid action for current step and present it within <action> </action> tags."""
 
 
 # ── Action extraction / formatting (mirrors Skill1 projection + env_manager) ──
@@ -281,6 +315,7 @@ async def run_webshop(
             done = False
             steps = 0
             reward = 0.0
+            reward_info: dict | None = None
             traj: list[dict] = []
             final_obs = obs
 
@@ -315,6 +350,8 @@ async def run_webshop(
                 avail = r.get("available_actions", {})
                 reward = float(r["reward"])
                 done = bool(r["done"])
+                if done and r.get("reward_info") is not None:
+                    reward_info = r["reward_info"]
                 history.append((pre_obs, action, valid))
                 steps += 1
                 final_obs = obs
@@ -324,9 +361,202 @@ async def run_webshop(
                 "task_id": tid,
                 "success": reward >= 0.999,
                 "reward": reward,
+                "reward_info": reward_info,
                 "steps": steps,
                 "goal": task_desc,
                 "trajectory": traj,
                 "final_obs": final_obs,
             })
+    return records
+
+
+# ── TextCraft ────────────────────────────────────────────────────────────────
+
+async def run_textcraft(
+    provider: LiteLLMProvider,
+    spec: HarnessSpec,
+    task_ids: list[str],
+    max_steps: int = TEXTCRAFT_MAX_STEPS,
+    seed: int = 0,
+    env_url: str | None = None,
+) -> list[dict]:
+    """In-process TextCraft rollout (no env server; SPEC §1/§3).
+
+    A single shared CraftingTree + vendored TextCraftEnv are built once per
+    worker and reused across episodes. ``seed``/``env_url`` are unused and kept
+    only for signature symmetry with ``run_alfworld``/``run_webshop``.
+    """
+    from .envs.textcraft.env import VENDOR_DIR, TextCraftEnvWrapper, load_manifest
+    from .envs.textcraft.vendor.crafting_tree import CraftingTree
+    from .envs.textcraft import failure_labels, projection
+
+    tree = CraftingTree(VENDOR_DIR)
+    manifest = load_manifest()
+    wrapper = TextCraftEnvWrapper(manifest=manifest, tree=tree)
+    records: list[dict] = []
+    skills = spec.guidance
+
+    for tid in task_ids:
+        row = manifest[tid]
+        task_desc = row["goal"]
+        commands_text = row["commands_text"]
+        obs, _info = wrapper.reset(tid)
+        history: list[tuple[str, str, bool]] = []
+        done = False
+        steps = 0
+        won = False
+        reward = 0.0
+        traj: list[dict] = []
+        final_obs = obs
+
+        while not done and steps < max_steps:
+            pre_obs = obs
+            adm_show = wrapper.admissible
+            adm_fmt = ", ".join(f"'{s}'" for s in adm_show)
+            action_history, shown_n = processors.render_history(history, spec.processors)
+            if not history:
+                user = TEXTCRAFT_TEMPLATE_NO_HIS.format(
+                    goal=task_desc, commands_text=commands_text, skills=skills,
+                    current_observation=pre_obs, admissible_actions=adm_fmt)
+            else:
+                user = TEXTCRAFT_TEMPLATE.format(
+                    goal=task_desc, commands_text=commands_text, skills=skills,
+                    step_count=len(history), history_length=shown_n,
+                    action_history=action_history, current_step=len(history) + 1,
+                    current_observation=pre_obs, admissible_actions=adm_fmt)
+
+            raw = await _complete(provider, spec.system_prompt, user)
+            raw_action, action = projection.extract(raw)
+            obs, reward, done, info = wrapper.step(action)
+            valid = action != ""
+            traj.append({
+                "step": steps + 1, "prompt": user, "obs": pre_obs,
+                "raw": raw, "raw_action": raw_action, "action": action,
+                "invalid": not valid,
+                "env_message": info["env_message"], "inventory": info["inventory"],
+                "in_admissible": info["in_admissible"],
+            })
+            history.append((pre_obs, action, valid))
+            steps += 1
+            final_obs = obs
+            won = reward >= 0.999
+
+        lab = failure_labels.label_trajectory(tree, row, traj, won)
+        records.append({
+            "task_id": tid,
+            "success": won,
+            "reward": 1.0 if won else 0.0,
+            "steps": steps,
+            "goal": task_desc,
+            "trajectory": traj,
+            "final_obs": final_obs,
+            "frontmatter_extra": {
+                "depth": row["depth"],
+                "episode_label": lab["episode_label"],
+                "progress": lab["progress"],
+            },
+        })
+    return records
+
+
+# ── ScienceWorld ──────────────────────────────────────────────────────────────
+
+async def run_sciworld(
+    provider: LiteLLMProvider,
+    spec: HarnessSpec,
+    episode_ids: list[str],
+    max_steps: int = SCIWORLD_MAX_STEPS,
+    seed: int = 0,
+    env_url: str | None = None,
+) -> list[dict]:
+    """ScienceWorld rollout over the py3.8 env-server pool (SPEC §8.2).
+
+    One :class:`ScienceWorldClient` per worker (episodes processed serially);
+    the blocking HTTP calls run in a thread so the async worker keeps the event
+    loop responsive.  ``seed`` is unused (the split is fixed) and kept only for
+    signature symmetry.
+    """
+    from .envs.sciworld.env import SCIWORLD_ENV_URL, ScienceWorldClient
+    from .envs.sciworld import failure_labels, projection
+
+    client = ScienceWorldClient(env_url or SCIWORLD_ENV_URL)
+    records: list[dict] = []
+    skills = spec.guidance
+    try:
+        for eid in episode_ids:
+            obs, _info = await asyncio.to_thread(client.reset, eid)
+            task_desc = client.task_desc
+            task_name = client.task_name
+            variation = client.variation
+            history: list[tuple[str, str, bool]] = []
+            done = False
+            steps = 0
+            traj: list[dict] = []
+            final_obs = obs
+
+            while not done and steps < max_steps:
+                pre_obs = obs
+                action_templates = "\n".join(f"- {a}" for a in client.possible_actions)
+                visible_objects = ", ".join(client.possible_objects)
+                action_history, shown_n = processors.render_history(history, spec.processors)
+                if not history:
+                    user = SCIWORLD_TEMPLATE_NO_HIS.format(
+                        task_description=task_desc, skills=skills,
+                        current_observation=pre_obs,
+                        action_templates=action_templates, visible_objects=visible_objects)
+                else:
+                    user = SCIWORLD_TEMPLATE.format(
+                        task_description=task_desc, skills=skills,
+                        step_count=len(history), history_length=shown_n,
+                        action_history=action_history, current_step=len(history) + 1,
+                        current_observation=pre_obs,
+                        action_templates=action_templates, visible_objects=visible_objects)
+
+                raw = await _complete(provider, spec.system_prompt, user)
+                raw_action, action = projection.extract(raw)
+                if action == "":
+                    # Parse failure: don't call the env; fixed observation, one step.
+                    obs = "Invalid action format."
+                    info = {"score_raw": client.score_raw, "score": client.score,
+                            "in_valid": False, "auto_disambiguated": False, "moves": 0}
+                    done = False
+                else:
+                    obs, _reward, done, info = await asyncio.to_thread(client.step, action)
+                traj.append({
+                    "step": steps + 1, "prompt": user, "obs": pre_obs,
+                    "raw": raw, "raw_action": raw_action, "action": action,
+                    "invalid": action == "",
+                    "env_message": obs,
+                    "score": info["score_raw"],
+                    "in_valid": bool(info["in_valid"]),
+                    "auto_disambiguated": bool(info["auto_disambiguated"]),
+                })
+                history.append((pre_obs, action, action != ""))
+                steps += 1
+                final_obs = obs
+
+            success = client.score_raw == 100
+            goal_progress = await asyncio.to_thread(client.goal_progress)
+            lab = failure_labels.label_trajectory(traj, goal_progress, success)
+            records.append({
+                "task_id": eid,
+                "success": success,
+                "reward": client.score,
+                "steps": steps,
+                "goal": task_desc,
+                "trajectory": traj,
+                "final_obs": final_obs,
+                "task_name": task_name,
+                "variation": variation,
+                "frontmatter_extra": {
+                    "task_name": task_name,
+                    "variation": variation,
+                    "score": client.score,
+                    "episode_label": lab["episode_label"],
+                    "first_unmet_subgoal": lab["first_unmet_subgoal"] or "",
+                },
+            })
+            await asyncio.to_thread(client.destroy)
+    finally:
+        client.close()
     return records

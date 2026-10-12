@@ -39,6 +39,8 @@ QWEN_SYSTEM = "You are Qwen, created by Alibaba Cloud. You are a helpful assista
 HISTORY_LENGTH = int(os.environ.get("EVOLVER_HISTORY_LENGTH", "2"))  # last N (obs, action) pairs
 ALF_MAX_STEPS = int(os.environ.get("EVOLVER_ALF_MAX_STEPS", "50"))
 WS_MAX_STEPS = int(os.environ.get("EVOLVER_WS_MAX_STEPS", "15"))
+TEXTCRAFT_MAX_STEPS = int(os.environ.get("EVOLVER_TEXTCRAFT_MAX_STEPS", "30"))
+SCIWORLD_MAX_STEPS = int(os.environ.get("EVOLVER_SCIWORLD_MAX_STEPS", "40"))
 
 
 @dataclass

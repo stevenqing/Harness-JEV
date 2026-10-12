@@ -34,6 +34,7 @@ import gc
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -67,15 +68,27 @@ from harnessx.core.model_config import ModelConfig
 from harnessx.providers.anthropic_provider import AnthropicProvider
 from harnessx.providers.litellm_provider import LiteLLMProvider
 
-from .agents import run_alfworld, run_webshop
+from .agents import run_alfworld, run_sciworld, run_textcraft, run_webshop
 from .gate import score_and_gate
 from .native.config import (
     make_alfworld_baseline_config,
+    make_sciworld_baseline_config,
+    make_textcraft_baseline_config,
     make_webshop_baseline_config,
     spec_from_config,
 )
-from .spec import ALF_MAX_STEPS, AGENT_ENABLE_THINKING, AGENT_MAX_TOKENS, AGENT_MODEL, AGENT_TEMPERATURE, AGENT_TOP_P, WS_MAX_STEPS
-from .trajectories import write_task_trajectory
+from .spec import (
+    ALF_MAX_STEPS,
+    AGENT_ENABLE_THINKING,
+    AGENT_MAX_TOKENS,
+    AGENT_MODEL,
+    AGENT_TEMPERATURE,
+    AGENT_TOP_P,
+    SCIWORLD_MAX_STEPS,
+    TEXTCRAFT_MAX_STEPS,
+    WS_MAX_STEPS,
+)
+from .trajectories import _derive, write_task_trajectory
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,6 +116,7 @@ _ALF_HELDOUT_ENV_URLS = (
     "http://127.0.0.1:18088,http://127.0.0.1:18089"
 )
 _WS_ENV_URL = "http://127.0.0.1:18090"
+_SCIWORLD_ENV_URL = "http://127.0.0.1:18091"
 
 DEFAULT_META_MODEL = os.environ.get("EVOLVER_META_MODEL", "anthropic/volcengine_maas/deepseek-v4-pro")
 DEFAULT_META_API_BASE = os.environ.get(
@@ -173,6 +187,16 @@ def _shard(items: list, n: int) -> list[list]:
     return [items[i * per:(i + 1) * per] for i in range(n)]
 
 
+def _load_env_split_task_ids(benchmark: str, split: str) -> list[str]:
+    """Task ids from ``envs/{benchmark}/splits.json`` (TextCraft / ScienceWorld).
+
+    ALFWorld uses int game_idx (``range``) and WebShop uses int task_id; only the
+    fixed-manifest benchmarks read their held-in / held-out / compat100 lists.
+    """
+    splits_path = _RECIPE_DIR / "envs" / benchmark / "splits.json"
+    return list(json.loads(splits_path.read_text(encoding="utf-8"))[split])
+
+
 async def run_text(
     config: HarnessConfig,
     benchmark: str,
@@ -196,10 +220,14 @@ async def run_text(
 
     async def worker(i: int) -> list[dict]:
         api_base = api_bases[i % len(api_bases)]
-        env_url = env_urls[i % len(env_urls)]
+        env_url = env_urls[i % len(env_urls)] if env_urls else None
         provider = make_agent_provider(api_base)
         if benchmark == "alfworld":
             return await run_alfworld(provider, spec, shards[i], seed=seed, env_url=env_url)
+        if benchmark == "textcraft":
+            return await run_textcraft(provider, spec, shards[i], seed=seed)
+        if benchmark == "sciworld":
+            return await run_sciworld(provider, spec, shards[i], seed=seed, env_url=env_url)
         return await run_webshop(provider, spec, shards[i], seed=seed, env_url=env_url)
 
     chunks = await asyncio.gather(*(worker(i) for i in range(n_workers)))
@@ -210,15 +238,16 @@ async def run_text(
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("benchmark", choices=["alfworld", "webshop"])
-    p.add_argument("--split", choices=["heldin", "heldout"], default="heldin",
-                   help="ALFWorld env split (heldin 18082-18085 / heldout 18086-18089). Ignored for webshop.")
+    p.add_argument("benchmark", choices=["alfworld", "webshop", "textcraft", "sciworld"])
+    p.add_argument("--split", choices=["heldin", "heldout", "compat100"], default="heldin",
+                   help="ALFWorld env split (heldin 18082-18085 / heldout 18086-18089); "
+                        "TextCraft/ScienceWorld fixed-manifest split (heldin/heldout/compat100). "
+                        "Ignored for webshop.")
     p.add_argument("--num-tasks", type=int, default=MAX_TASKS)
     p.add_argument("--start", type=int, default=0, help="task index offset (game_idx / task_id)")
     p.add_argument("--seed", type=int, default=None, help="defaults to 1234 (alfworld) / 0 (webshop)")
     p.add_argument("--num-rounds", type=int, default=NUM_ROUNDS,
                    help="total rollout rounds (R0..R{N-1}); evolve runs after each non-last round")
-    p.add_argument("--agent-model", default=AGENT_MODEL)
     p.add_argument("--agent-api-bases", default=None, help="comma-separated vLLM /v1 bases")
     p.add_argument("--env-urls", default=None, help="comma-separated env server bases (override default)")
     p.add_argument("--concurrency", type=int, default=None,
@@ -236,18 +265,36 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         "instead of the programmatic baseline — for held-out generalization probes")
     p.add_argument("--decision-backend", default="llm",
                    help="trajectory-analysis backend for the meta-evolve decision process: "
-                        "'llm' (default — no structured three-axis pre-analysis; the meta-LLM "
-                        "diagnoses trajectories through its normal evolve flow), 'kev' (frozen "
-                        "System-1 read head scores each failed trajectory), or 'meta' (ablation — "
-                        "the meta-LLM itself answers the same three-axis questions per trajectory "
-                        "and the runner aggregates them). Unknown/offline model backends fall back "
-                        "to 'llm'.")
+                        "'llm' (default — no structured pre-analysis; the meta-LLM diagnoses "
+                        "trajectories through its normal evolve flow), 'kev' (frozen System-1 "
+                        "read head scores each failed trajectory against a meta-induced predicate "
+                        "vocabulary), or 'meta' (ablation — the meta-LLM itself scores each "
+                        "trajectory and the runner aggregates them). Unknown/offline model "
+                        "backends fall back to 'llm'.")
     p.add_argument("--decision-base-url", default="http://127.0.0.1:8090",
                    help="decision-model sidecar base URL (used when --decision-backend != llm)")
     p.add_argument("--decision-mode", default="prior", choices=("prior", "enforce"),
-                   help="how to use the decision backend: 'prior' (soft — inject as an "
-                        "overrideable prior, default) or 'enforce' (hard — the backend's lever "
-                        "decision is binding and gate-checked against the authored config)")
+                   help="how to use the decision backend: 'prior' (soft — inject the noul-vector "
+                        "predicate prior, default) or 'enforce' (hard — candidates are retrochecked "
+                        "on the intent axis and rejected on a soft pass_prob; the old single-lever "
+                        "binding is retired because the lever axis is now a soft noul vector)")
+    p.add_argument("--decision-prior-source", default="meta", choices=("meta", "fixed", "none"),
+                   help="where the lever predicate vocabulary comes from (ablation): 'meta' "
+                        "(default — induced each round from this round's failures), 'fixed' "
+                        "(static hand-written set), or 'none' (lens-only, no lever predicates)")
+    p.add_argument("--decision-prior-constant", type=float, default=None,
+                   help="control experiment: overwrite every prior decision with this fixed "
+                        "p(true) after scoring (keeps prior structure, erases values). "
+                        "None (default) = use the real scored values.")
+    p.add_argument("--task-fliprate-path", default=_DEFAULT_TASK_FLIPRATE_PATH,
+                   help="precomputed per-task historical flip-rate table (spec §3.1); "
+                        "relative paths resolve against the project root. Empty string "
+                        "disables the flip-rate replacement.")
+    p.add_argument("--gate-task-weight", default="uniform", choices=("uniform", "fliprate"),
+                   help="how the gate's round_reward is computed (spec §3.3): 'uniform' "
+                        "(default — plain mean reward, unchanged behaviour) or 'fliprate' "
+                        "(weighted mean with w = 1 - flip_rate, down-weighting tasks that "
+                        "historically flip easily).")
     return p.parse_args(argv)
 
 
@@ -281,23 +328,160 @@ def _cited_rejected(retro: Any, memo_path: Path) -> list[str]:
     return sorted(rejected)
 
 
+# ── Task flip-rate prior (spec §3.1 / §3.3) ─────────────────────────────────
+
+_DEFAULT_TASK_FLIPRATE_PATH = "data/predicted_affected_ablation/task_fliprate.json"
+
+
+def _extract_model_size_b(model_name: str) -> str | None:
+    """Normalize the model-size token from a model id, e.g. ``Qwen3.5-4B`` → ``"4b"``.
+
+    The flip-rate strata are keyed ``<benchmark>_<size>`` with size ∈ {4b, 2b}
+    (lowercase). A size that has no exact stratum (e.g. ``0.8b``) falls back to
+    the first matching benchmark prefix in ``_resolve_fliprate_stratum``.
+    """
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[bB]", model_name or "")
+    if not m:
+        return None
+    return m.group(1).lower() + "b"
+
+
+def _resolve_fliprate_table_path(arg_path: str | None) -> Path | None:
+    """Resolve the flip-rate table path (relative paths → project root)."""
+    if not arg_path:
+        return None
+    p = Path(arg_path)
+    if not p.is_absolute():
+        p = Path(_PROJECT_ROOT) / p
+    return p
+
+
+def _load_task_fliprate_table(path: Path | None) -> dict:
+    """Load the precomputed per-task flip-rate table; ``{}`` when absent/malformed."""
+    if path is None:
+        return {}
+    if not path.is_file():
+        logger.warning("task flip-rate table not found at %s — fliprate features degraded", path)
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("task flip-rate table unreadable at %s (%s)", path, exc)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _resolve_fliprate_stratum(table: dict, benchmark: str, agent_model: str) -> tuple[str | None, dict]:
+    """Resolve the run's flip-rate stratum.
+
+    Exact key = ``<benchmark>_<model-size-token>`` (e.g. ``alfworld_4b``). When
+    the size token can't be extracted or the exact key is absent, fall back to
+    the first table key with the ``<benchmark>_`` prefix (spec §3.1). Returns
+    ``(key, stratum_dict)`` or ``(None, {})`` when no stratum matches.
+    """
+    size = _extract_model_size_b(agent_model)
+    if size:
+        key = f"{benchmark}_{size}"
+        if key in table:
+            return key, table[key]
+    prefix = f"{benchmark}_"
+    for key in table:
+        if key.startswith(prefix):
+            return key, table[key]
+    return None, {}
+
+
+def _stratum_fliprate_map(stratum: dict) -> dict[str, float]:
+    """``task_id(str) → flip_rate`` for one stratum (``stratum_mean`` excluded)."""
+    out: dict[str, float] = {}
+    for key, value in stratum.items():
+        if key == "stratum_mean":
+            continue
+        if isinstance(value, dict) and "flip_rate" in value:
+            out[str(key)] = float(value["flip_rate"])
+    return out
+
+
+def compute_fliprate_predicted(
+    failed_task_ids: set[str],
+    fliprate_map: dict[str, float],
+    stratum_mean: float,
+    k: int,
+) -> list[str]:
+    """§3.1: top-k of ``failed_task_ids`` ranked by historical flip rate.
+
+    ``failed_task_ids`` are the *parent* round's failures — the ``src 失败``
+    side of the flip transition (flip_rate = src 失败 → dst 通过, spec §3.1.1),
+    i.e. the only tasks that can flip. Tasks without a recorded flip rate use
+    ``stratum_mean`` (the "no history" fallback). Ties break on task_id for
+    determinism. ``k`` is clamped to the number of failed tasks.
+    """
+    if not failed_task_ids:
+        return []
+    k = max(0, min(k, len(failed_task_ids)))
+    if k == 0:
+        return []
+    scored = [(tid, float(fliprate_map.get(tid, stratum_mean))) for tid in failed_task_ids]
+    scored.sort(key=lambda item: (-item[1], item[0]))
+    return [tid for tid, _ in scored[:k]]
+
+
+def _weighted_fliprate_reward(
+    records: list[dict], fliprate_map: dict[str, float], stratum_mean: float
+) -> float:
+    """§3.3: mean reward weighted by ``w = 1 - flip_rate`` per task.
+
+    Down-weights tasks that historically flip easily (their flip is expected,
+    low information) and up-weights hard-to-flip tasks. Falls back to the plain
+    mean when the total weight is non-positive.
+    """
+    if not records:
+        return 0.0
+    total_w = 0.0
+    weighted_sum = 0.0
+    for r in records:
+        w = 1.0 - float(fliprate_map.get(str(r["task_id"]), stratum_mean))
+        total_w += w
+        weighted_sum += w * float(r["reward"])
+    if total_w <= 0.0:
+        return sum(float(r["reward"]) for r in records) / len(records)
+    return weighted_sum / total_w
+
+
 async def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     benchmark = args.benchmark
-    split = args.split if benchmark == "alfworld" else "test"
+    split = args.split if benchmark in ("alfworld", "textcraft", "sciworld") else "test"
 
     api_bases = [u.strip() for u in (args.agent_api_bases or _AGENT_API_BASES_DEFAULT).split(",") if u.strip()]
     concurrency = args.concurrency or len(api_bases)
 
     if benchmark == "alfworld":
         default_env = _ALF_HELDIN_ENV_URLS if split == "heldin" else _ALF_HELDOUT_ENV_URLS
+    elif benchmark == "textcraft":
+        default_env = ""  # in-process env, no server
+    elif benchmark == "sciworld":
+        default_env = _SCIWORLD_ENV_URL
     else:
         default_env = _WS_ENV_URL
     env_urls = [u.strip() for u in (args.env_urls or default_env).split(",") if u.strip()]
 
-    seed = args.seed if args.seed is not None else (1234 if benchmark == "alfworld" else 0)
-    max_steps = ALF_MAX_STEPS if benchmark == "alfworld" else WS_MAX_STEPS
-    task_ids = list(range(args.start, args.start + args.num_tasks))
+    if benchmark in ("textcraft", "sciworld"):
+        seed = 0  # fixed manifest — no randomness; seed is unused
+    else:
+        seed = args.seed if args.seed is not None else (1234 if benchmark == "alfworld" else 0)
+    max_steps = {
+        "alfworld": ALF_MAX_STEPS,
+        "webshop": WS_MAX_STEPS,
+        "textcraft": TEXTCRAFT_MAX_STEPS,
+        "sciworld": SCIWORLD_MAX_STEPS,
+    }[benchmark]
+    if benchmark in ("textcraft", "sciworld"):
+        task_ids = _load_env_split_task_ids(benchmark, split)[args.start : args.start + args.num_tasks]
+    else:
+        task_ids = list(range(args.start, args.start + args.num_tasks))
 
     run_tag = args.run_tag or f"{benchmark}_{split}_{time.strftime('%Y%m%d_%H%M%S')}"
     RUN_DIR = RUNS_DIR / "evolve" / run_tag
@@ -323,6 +507,10 @@ async def main(argv: list[str] | None = None) -> None:
     if args.base_config:
         current_config = HarnessConfig.from_yaml_file(args.base_config)
         logger.info("starting from external config: %s", args.base_config)
+    elif benchmark == "textcraft":
+        current_config = make_textcraft_baseline_config()
+    elif benchmark == "sciworld":
+        current_config = make_sciworld_baseline_config()
     elif benchmark == "alfworld":
         current_config = make_alfworld_baseline_config()
     else:
@@ -349,6 +537,26 @@ async def main(argv: list[str] | None = None) -> None:
     next_evolve_status: str = "baseline"
     all_rounds: list[list[dict]] = []
     round_summaries: list[dict] = []
+
+    # ── Task flip-rate prior (spec §3.1 / §3.3) ──────────────────────────────
+    # `predicted_affected` degrades from "this candidate's exclusive claim" to a
+    # "task rescue-ability prior": Step 0b showed the candidate-conditional
+    # (diff-side) signal is ~0 while the per-task historical flip rate is the
+    # real signal, so journal attribution uses the flip-rate top-k instead of
+    # the meta's predicted_affected (spec §3.1 end-note).
+    fliprate_table = _load_task_fliprate_table(_resolve_fliprate_table_path(args.task_fliprate_path))
+    fliprate_stratum_key, fliprate_stratum = _resolve_fliprate_stratum(
+        fliprate_table, benchmark, AGENT_MODEL
+    )
+    fliprate_map = _stratum_fliprate_map(fliprate_stratum)
+    fliprate_stratum_mean = float(fliprate_stratum.get("stratum_mean", 0.0)) if fliprate_stratum else 0.0
+    if fliprate_stratum_key:
+        logger.info("task flip-rate stratum=%s mean=%.4f tasks=%d",
+                    fliprate_stratum_key, fliprate_stratum_mean, len(fliprate_map))
+    else:
+        logger.warning("no task flip-rate stratum for benchmark=%s model=%s — "
+                       "fliprate_predicted falls back to the meta predicted_affected",
+                       benchmark, AGENT_MODEL)
 
     for round_idx in range(args.num_rounds):
         is_last = round_idx == args.num_rounds - 1
@@ -386,8 +594,14 @@ async def main(argv: list[str] | None = None) -> None:
         })
 
         # ── Gate ─────────────────────────────────────────────────────────────
+        # §3.3: fliprate mode reweights each task's reward by w = 1 - flip_rate
+        # before feeding round_reward to score_and_gate. Uniform (default) keeps
+        # the historical plain-mean behaviour exactly.
+        gate_reward = avg_reward
+        if args.gate_task_weight == "fliprate":
+            gate_reward = _weighted_fliprate_reward(records, fliprate_map, fliprate_stratum_mean)
         decision, reason, best_so_far, reverted_cfg = score_and_gate(
-            round_reward=avg_reward,
+            round_reward=gate_reward,
             round_cost=round_cost,
             round_idx=round_idx,
             round_config=current_config,
@@ -418,22 +632,51 @@ async def main(argv: list[str] | None = None) -> None:
                         outcome = "noop"
                     elif next_evolve_status == "rejected_retrocheck":
                         outcome = "reverted"
+                    # §3.1: attribution now uses the flip-rate top-k instead of
+                    # the meta's predicted_affected. `predicted_affected` degrades
+                    # from "this candidate's exclusive claim" to a "task rescue-
+                    # ability prior" (Step 0b: candidate-conditional signal ~0).
+                    meta_predicted = entry.predicted_affected
+                    k = len(meta_predicted) if meta_predicted else 8
+                    if fliprate_stratum_key is not None:
+                        # Parent (src) round failures — the only tasks that can
+                        # flip F→T (flip_rate = src 失败 → dst 通过, spec §3.1.1).
+                        prev_failed = {str(r["task_id"]) for r in prev_records if not r["success"]}
+                        predicted = compute_fliprate_predicted(
+                            prev_failed, fliprate_map, fliprate_stratum_mean, k
+                        )
+                        fliprate_predicted = predicted
+                    else:
+                        # No flip-rate data for this benchmark — keep the meta's
+                        # original prediction (behaviour unchanged) and record an
+                        # empty fliprate_predicted so the field stays honest.
+                        predicted = meta_predicted
+                        fliprate_predicted = []
                     attribution = _journal.compute_attribution(
-                        entry.predicted_affected,
+                        predicted,
                         passed_now=cur_passed,
                         passed_before=prev_passed,
                         appeared_now=cur_appeared,
                         appeared_before=prev_appeared,
                     )
-                    predicted_set = set(entry.predicted_affected)
+                    predicted_set = set(predicted)
                     regressed_unpredicted = sorted(
                         (prev_passed & prev_appeared & cur_appeared) - cur_passed - predicted_set
                     )
+                    extra_fm = {
+                        "regressed_unpredicted": regressed_unpredicted,
+                        "fliprate_predicted": fliprate_predicted,
+                    }
+                    if "predicted_affected" in entry.frontmatter:
+                        # §3.2: keep the meta's original predicted_affected verbatim
+                        # (provenance — the meta can see what it guessed).
+                        extra_fm["predicted_affected"] = entry.frontmatter["predicted_affected"]
                     _journal.fill_gating(
                         LEARNINGS_PATH, round_idx, outcome, attribution,
-                        extra_frontmatter={"regressed_unpredicted": regressed_unpredicted},
+                        extra_frontmatter=extra_fm,
                     )
-                    logger.info("[R%d] journal fill_gating outcome=%s attribution=%s", round_idx, outcome, attribution)
+                    logger.info("[R%d] journal fill_gating outcome=%s attribution=%s fliprate_predicted=%s",
+                                round_idx, outcome, attribution, fliprate_predicted)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[R%d] journal fill_gating failed (non-fatal): %s", round_idx, exc)
 
@@ -453,20 +696,23 @@ async def main(argv: list[str] | None = None) -> None:
             logger.info("[R%d] evolve skipped — using existing %s", round_idx, existing_yaml)
         else:
             priors_path = None
-            decision_lever = None
-            decision_lever_confidence = None
             if args.decision_backend != "llm":
                 try:
                     priors_path = evolve_dir / "_meta_scratch" / "decision_priors.md"
                     from .decision_prior import build_decision_priors
 
                     # The "meta" backend needs the meta model itself (not a
-                    # sidecar URL) to answer the three-axis questions.
+                    # sidecar URL) to score the questions.  The predicate
+                    # vocabulary is ALWAYS induced by the meta model — whoever
+                    # scores it — so meta_provider is always passed in.
                     model_kwargs = {"provider": meta_provider} if args.decision_backend == "meta" else None
                     # The meta backend is a generative call (~20s/trajectory),
                     # so its per-trajectory judgments run in parallel; kev/semif
                     # are near-instant and stay sequential (concurrency=1).
-                    concurrency = (
+                    # NOTE: do not reuse the outer ``concurrency`` (rollout
+                    # worker count) — reassigning it would leak into the NEXT
+                    # round's rollout and silently drop it to 1 worker.
+                    judge_concurrency = (
                         int(os.environ.get("EVOLVER_META_JUDGE_CONCURRENCY", "8"))
                         if args.decision_backend == "meta"
                         else 1
@@ -478,21 +724,23 @@ async def main(argv: list[str] | None = None) -> None:
                         model=args.decision_backend,
                         base_url=args.decision_base_url,
                         model_kwargs=model_kwargs,
-                        concurrency=concurrency,
+                        meta_provider=meta_provider,
+                        predicate_source=args.decision_prior_source,
+                        concurrency=judge_concurrency,
+                        constant_prior=args.decision_prior_constant,
                     )
                     priors_path = priors.path
-                    logger.info("[R%d] decision priors (%s) → %s (lever=%s conf=%.2f)",
-                                round_idx, args.decision_backend, priors_path,
-                                priors.lever_argmax, priors.lever_confidence)
-                    if args.decision_mode == "enforce" and priors.lever_argmax is not None:
-                        decision_lever = priors.lever_argmax
-                        decision_lever_confidence = priors.lever_confidence
-                    elif args.decision_mode == "enforce":
-                        logger.warning(
-                            "[R%d] enforce mode but no failed trajectories to bind a lever "
-                            "(lever_argmax is None) — running unbound this round",
-                            round_idx,
-                        )
+                    dominant = (
+                        max(priors.lever_aggregate, key=priors.lever_aggregate.get)
+                        if priors.lever_aggregate
+                        else None
+                    )
+                    logger.info(
+                        "[R%d] decision priors (%s) → %s (predicates=%d dominant=%s lens=%.2f/%.2f)",
+                        round_idx, args.decision_backend, priors_path,
+                        len(priors.lever_predicates), dominant,
+                        priors.lens_failure_p, priors.lens_capability_gap_p,
+                    )
                 except Exception as exc:  # noqa: BLE001
                     if args.decision_mode == "enforce":
                         # In enforce mode a silent fallback would defeat the experiment:
@@ -513,8 +761,6 @@ async def main(argv: list[str] | None = None) -> None:
                     trajectories_dir=traj_dir,
                     output_dir=evolve_dir,
                     decision_priors_path=priors_path,
-                    decision_lever=decision_lever,
-                    decision_lever_confidence=decision_lever_confidence,
                 )
                 candidate = HarnessConfig.from_yaml_file(new_yaml).canonicalize()
                 next_evolve_status = "noop" if round_config_path.read_bytes() == Path(new_yaml).read_bytes() else "ok"
@@ -554,7 +800,7 @@ async def main(argv: list[str] | None = None) -> None:
         "benchmark": benchmark,
         "split": split,
         "run_tag": run_tag,
-        "agent_model": args.agent_model,
+        "agent_model": AGENT_MODEL,
         "seed": seed,
         "num_tasks": len(task_ids),
         "rounds": round_summaries,

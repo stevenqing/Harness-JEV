@@ -1,0 +1,776 @@
+{
+  "heldin": [
+    "chemistry-mix-paint-secondary-color_0",
+    "chemistry-mix-paint-secondary-color_1",
+    "chemistry-mix-paint-secondary-color_2",
+    "chemistry-mix-paint-secondary-color_3",
+    "chemistry-mix-paint-secondary-color_4",
+    "chemistry-mix-paint-tertiary-color_0",
+    "chemistry-mix-paint-tertiary-color_1",
+    "chemistry-mix-paint-tertiary-color_2",
+    "chemistry-mix-paint-tertiary-color_3",
+    "chemistry-mix-paint-tertiary-color_4",
+    "chemistry-mix_0",
+    "chemistry-mix_1",
+    "chemistry-mix_2",
+    "chemistry-mix_3",
+    "chemistry-mix_4",
+    "find-animal_0",
+    "find-animal_1",
+    "find-animal_2",
+    "find-animal_3",
+    "find-animal_4",
+    "find-animal_5",
+    "find-living-thing_0",
+    "find-living-thing_1",
+    "find-living-thing_2",
+    "find-living-thing_3",
+    "find-living-thing_4",
+    "find-living-thing_5",
+    "find-non-living-thing_0",
+    "find-non-living-thing_1",
+    "find-non-living-thing_2",
+    "find-non-living-thing_3",
+    "find-non-living-thing_4",
+    "find-non-living-thing_5",
+    "find-plant_0",
+    "find-plant_1",
+    "find-plant_2",
+    "find-plant_3",
+    "find-plant_4",
+    "identify-life-stages-2_0",
+    "identify-life-stages-2_1",
+    "identify-life-stages-2_2",
+    "identify-life-stages-2_3",
+    "lifespan-longest-lived-then-shortest-lived_0",
+    "lifespan-longest-lived-then-shortest-lived_1",
+    "lifespan-longest-lived-then-shortest-lived_2",
+    "lifespan-longest-lived-then-shortest-lived_3",
+    "lifespan-longest-lived-then-shortest-lived_4",
+    "lifespan-longest-lived_0",
+    "lifespan-longest-lived_1",
+    "lifespan-longest-lived_2",
+    "lifespan-longest-lived_3",
+    "lifespan-longest-lived_4",
+    "lifespan-shortest-lived_0",
+    "lifespan-shortest-lived_1",
+    "lifespan-shortest-lived_2",
+    "lifespan-shortest-lived_3",
+    "lifespan-shortest-lived_4",
+    "use-thermometer_0",
+    "use-thermometer_1",
+    "use-thermometer_2",
+    "use-thermometer_3",
+    "use-thermometer_4",
+    "use-thermometer_5",
+    "use-thermometer_6"
+  ],
+  "heldout": [
+    "chemistry-mix-paint-secondary-color_27",
+    "chemistry-mix-paint-secondary-color_28",
+    "chemistry-mix-paint-secondary-color_29",
+    "chemistry-mix-paint-secondary-color_30",
+    "chemistry-mix-paint-secondary-color_31",
+    "chemistry-mix-paint-tertiary-color_27",
+    "chemistry-mix-paint-tertiary-color_28",
+    "chemistry-mix-paint-tertiary-color_29",
+    "chemistry-mix-paint-tertiary-color_30",
+    "chemistry-mix-paint-tertiary-color_31",
+    "chemistry-mix_24",
+    "chemistry-mix_25",
+    "chemistry-mix_26",
+    "chemistry-mix_27",
+    "chemistry-mix_28",
+    "find-animal_225",
+    "find-animal_226",
+    "find-animal_227",
+    "find-animal_228",
+    "find-animal_229",
+    "find-animal_230",
+    "find-living-thing_225",
+    "find-living-thing_226",
+    "find-living-thing_227",
+    "find-living-thing_228",
+    "find-living-thing_229",
+    "find-living-thing_230",
+    "find-non-living-thing_225",
+    "find-non-living-thing_226",
+    "find-non-living-thing_227",
+    "find-non-living-thing_228",
+    "find-non-living-thing_229",
+    "find-non-living-thing_230",
+    "find-plant_225",
+    "find-plant_226",
+    "find-plant_227",
+    "find-plant_228",
+    "find-plant_229",
+    "identify-life-stages-2_6",
+    "identify-life-stages-2_7",
+    "identify-life-stages-2_8",
+    "identify-life-stages-2_9",
+    "lifespan-longest-lived-then-shortest-lived_93",
+    "lifespan-longest-lived-then-shortest-lived_94",
+    "lifespan-longest-lived-then-shortest-lived_95",
+    "lifespan-longest-lived-then-shortest-lived_96",
+    "lifespan-longest-lived-then-shortest-lived_97",
+    "lifespan-longest-lived_93",
+    "lifespan-longest-lived_94",
+    "lifespan-longest-lived_95",
+    "lifespan-longest-lived_96",
+    "lifespan-longest-lived_97",
+    "lifespan-shortest-lived_93",
+    "lifespan-shortest-lived_94",
+    "lifespan-shortest-lived_95",
+    "lifespan-shortest-lived_96",
+    "lifespan-shortest-lived_97",
+    "use-thermometer_405",
+    "use-thermometer_406",
+    "use-thermometer_407",
+    "use-thermometer_408",
+    "use-thermometer_409",
+    "use-thermometer_410",
+    "use-thermometer_411"
+  ],
+  "episodes": {
+    "chemistry-mix_0": {
+      "task_name": "chemistry-mix",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "chemistry-mix_1": {
+      "task_name": "chemistry-mix",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "chemistry-mix_2": {
+      "task_name": "chemistry-mix",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "chemistry-mix_3": {
+      "task_name": "chemistry-mix",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "chemistry-mix_4": {
+      "task_name": "chemistry-mix",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "chemistry-mix_24": {
+      "task_name": "chemistry-mix",
+      "variation": 24,
+      "split": "heldout"
+    },
+    "chemistry-mix_25": {
+      "task_name": "chemistry-mix",
+      "variation": 25,
+      "split": "heldout"
+    },
+    "chemistry-mix_26": {
+      "task_name": "chemistry-mix",
+      "variation": 26,
+      "split": "heldout"
+    },
+    "chemistry-mix_27": {
+      "task_name": "chemistry-mix",
+      "variation": 27,
+      "split": "heldout"
+    },
+    "chemistry-mix_28": {
+      "task_name": "chemistry-mix",
+      "variation": 28,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-secondary-color_0": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-secondary-color_1": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-secondary-color_2": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-secondary-color_3": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-secondary-color_4": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-secondary-color_27": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 27,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-secondary-color_28": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 28,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-secondary-color_29": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 29,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-secondary-color_30": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 30,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-secondary-color_31": {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "variation": 31,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-tertiary-color_0": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-tertiary-color_1": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-tertiary-color_2": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-tertiary-color_3": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-tertiary-color_4": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "chemistry-mix-paint-tertiary-color_27": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 27,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-tertiary-color_28": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 28,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-tertiary-color_29": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 29,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-tertiary-color_30": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 30,
+      "split": "heldout"
+    },
+    "chemistry-mix-paint-tertiary-color_31": {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "variation": 31,
+      "split": "heldout"
+    },
+    "find-animal_0": {
+      "task_name": "find-animal",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "find-animal_1": {
+      "task_name": "find-animal",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "find-animal_2": {
+      "task_name": "find-animal",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "find-animal_3": {
+      "task_name": "find-animal",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "find-animal_4": {
+      "task_name": "find-animal",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "find-animal_5": {
+      "task_name": "find-animal",
+      "variation": 5,
+      "split": "heldin"
+    },
+    "find-animal_225": {
+      "task_name": "find-animal",
+      "variation": 225,
+      "split": "heldout"
+    },
+    "find-animal_226": {
+      "task_name": "find-animal",
+      "variation": 226,
+      "split": "heldout"
+    },
+    "find-animal_227": {
+      "task_name": "find-animal",
+      "variation": 227,
+      "split": "heldout"
+    },
+    "find-animal_228": {
+      "task_name": "find-animal",
+      "variation": 228,
+      "split": "heldout"
+    },
+    "find-animal_229": {
+      "task_name": "find-animal",
+      "variation": 229,
+      "split": "heldout"
+    },
+    "find-animal_230": {
+      "task_name": "find-animal",
+      "variation": 230,
+      "split": "heldout"
+    },
+    "find-living-thing_0": {
+      "task_name": "find-living-thing",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "find-living-thing_1": {
+      "task_name": "find-living-thing",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "find-living-thing_2": {
+      "task_name": "find-living-thing",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "find-living-thing_3": {
+      "task_name": "find-living-thing",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "find-living-thing_4": {
+      "task_name": "find-living-thing",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "find-living-thing_5": {
+      "task_name": "find-living-thing",
+      "variation": 5,
+      "split": "heldin"
+    },
+    "find-living-thing_225": {
+      "task_name": "find-living-thing",
+      "variation": 225,
+      "split": "heldout"
+    },
+    "find-living-thing_226": {
+      "task_name": "find-living-thing",
+      "variation": 226,
+      "split": "heldout"
+    },
+    "find-living-thing_227": {
+      "task_name": "find-living-thing",
+      "variation": 227,
+      "split": "heldout"
+    },
+    "find-living-thing_228": {
+      "task_name": "find-living-thing",
+      "variation": 228,
+      "split": "heldout"
+    },
+    "find-living-thing_229": {
+      "task_name": "find-living-thing",
+      "variation": 229,
+      "split": "heldout"
+    },
+    "find-living-thing_230": {
+      "task_name": "find-living-thing",
+      "variation": 230,
+      "split": "heldout"
+    },
+    "find-non-living-thing_0": {
+      "task_name": "find-non-living-thing",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "find-non-living-thing_1": {
+      "task_name": "find-non-living-thing",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "find-non-living-thing_2": {
+      "task_name": "find-non-living-thing",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "find-non-living-thing_3": {
+      "task_name": "find-non-living-thing",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "find-non-living-thing_4": {
+      "task_name": "find-non-living-thing",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "find-non-living-thing_5": {
+      "task_name": "find-non-living-thing",
+      "variation": 5,
+      "split": "heldin"
+    },
+    "find-non-living-thing_225": {
+      "task_name": "find-non-living-thing",
+      "variation": 225,
+      "split": "heldout"
+    },
+    "find-non-living-thing_226": {
+      "task_name": "find-non-living-thing",
+      "variation": 226,
+      "split": "heldout"
+    },
+    "find-non-living-thing_227": {
+      "task_name": "find-non-living-thing",
+      "variation": 227,
+      "split": "heldout"
+    },
+    "find-non-living-thing_228": {
+      "task_name": "find-non-living-thing",
+      "variation": 228,
+      "split": "heldout"
+    },
+    "find-non-living-thing_229": {
+      "task_name": "find-non-living-thing",
+      "variation": 229,
+      "split": "heldout"
+    },
+    "find-non-living-thing_230": {
+      "task_name": "find-non-living-thing",
+      "variation": 230,
+      "split": "heldout"
+    },
+    "find-plant_0": {
+      "task_name": "find-plant",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "find-plant_1": {
+      "task_name": "find-plant",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "find-plant_2": {
+      "task_name": "find-plant",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "find-plant_3": {
+      "task_name": "find-plant",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "find-plant_4": {
+      "task_name": "find-plant",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "find-plant_225": {
+      "task_name": "find-plant",
+      "variation": 225,
+      "split": "heldout"
+    },
+    "find-plant_226": {
+      "task_name": "find-plant",
+      "variation": 226,
+      "split": "heldout"
+    },
+    "find-plant_227": {
+      "task_name": "find-plant",
+      "variation": 227,
+      "split": "heldout"
+    },
+    "find-plant_228": {
+      "task_name": "find-plant",
+      "variation": 228,
+      "split": "heldout"
+    },
+    "find-plant_229": {
+      "task_name": "find-plant",
+      "variation": 229,
+      "split": "heldout"
+    },
+    "identify-life-stages-2_0": {
+      "task_name": "identify-life-stages-2",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "identify-life-stages-2_1": {
+      "task_name": "identify-life-stages-2",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "identify-life-stages-2_2": {
+      "task_name": "identify-life-stages-2",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "identify-life-stages-2_3": {
+      "task_name": "identify-life-stages-2",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "identify-life-stages-2_6": {
+      "task_name": "identify-life-stages-2",
+      "variation": 6,
+      "split": "heldout"
+    },
+    "identify-life-stages-2_7": {
+      "task_name": "identify-life-stages-2",
+      "variation": 7,
+      "split": "heldout"
+    },
+    "identify-life-stages-2_8": {
+      "task_name": "identify-life-stages-2",
+      "variation": 8,
+      "split": "heldout"
+    },
+    "identify-life-stages-2_9": {
+      "task_name": "identify-life-stages-2",
+      "variation": 9,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived_0": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived_1": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived_2": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived_3": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived_4": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived_93": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 93,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived_94": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 94,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived_95": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 95,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived_96": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 96,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived_97": {
+      "task_name": "lifespan-longest-lived",
+      "variation": 97,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived-then-shortest-lived_0": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived-then-shortest-lived_1": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived-then-shortest-lived_2": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived-then-shortest-lived_3": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived-then-shortest-lived_4": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "lifespan-longest-lived-then-shortest-lived_93": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 93,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived-then-shortest-lived_94": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 94,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived-then-shortest-lived_95": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 95,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived-then-shortest-lived_96": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 96,
+      "split": "heldout"
+    },
+    "lifespan-longest-lived-then-shortest-lived_97": {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "variation": 97,
+      "split": "heldout"
+    },
+    "lifespan-shortest-lived_0": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "lifespan-shortest-lived_1": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "lifespan-shortest-lived_2": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "lifespan-shortest-lived_3": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "lifespan-shortest-lived_4": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "lifespan-shortest-lived_93": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 93,
+      "split": "heldout"
+    },
+    "lifespan-shortest-lived_94": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 94,
+      "split": "heldout"
+    },
+    "lifespan-shortest-lived_95": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 95,
+      "split": "heldout"
+    },
+    "lifespan-shortest-lived_96": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 96,
+      "split": "heldout"
+    },
+    "lifespan-shortest-lived_97": {
+      "task_name": "lifespan-shortest-lived",
+      "variation": 97,
+      "split": "heldout"
+    },
+    "use-thermometer_0": {
+      "task_name": "use-thermometer",
+      "variation": 0,
+      "split": "heldin"
+    },
+    "use-thermometer_1": {
+      "task_name": "use-thermometer",
+      "variation": 1,
+      "split": "heldin"
+    },
+    "use-thermometer_2": {
+      "task_name": "use-thermometer",
+      "variation": 2,
+      "split": "heldin"
+    },
+    "use-thermometer_3": {
+      "task_name": "use-thermometer",
+      "variation": 3,
+      "split": "heldin"
+    },
+    "use-thermometer_4": {
+      "task_name": "use-thermometer",
+      "variation": 4,
+      "split": "heldin"
+    },
+    "use-thermometer_5": {
+      "task_name": "use-thermometer",
+      "variation": 5,
+      "split": "heldin"
+    },
+    "use-thermometer_6": {
+      "task_name": "use-thermometer",
+      "variation": 6,
+      "split": "heldin"
+    },
+    "use-thermometer_405": {
+      "task_name": "use-thermometer",
+      "variation": 405,
+      "split": "heldout"
+    },
+    "use-thermometer_406": {
+      "task_name": "use-thermometer",
+      "variation": 406,
+      "split": "heldout"
+    },
+    "use-thermometer_407": {
+      "task_name": "use-thermometer",
+      "variation": 407,
+      "split": "heldout"
+    },
+    "use-thermometer_408": {
+      "task_name": "use-thermometer",
+      "variation": 408,
+      "split": "heldout"
+    },
+    "use-thermometer_409": {
+      "task_name": "use-thermometer",
+      "variation": 409,
+      "split": "heldout"
+    },
+    "use-thermometer_410": {
+      "task_name": "use-thermometer",
+      "variation": 410,
+      "split": "heldout"
+    },
+    "use-thermometer_411": {
+      "task_name": "use-thermometer",
+      "variation": 411,
+      "split": "heldout"
+    }
+  }
+}

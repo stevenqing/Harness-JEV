@@ -1,0 +1,580 @@
+{
+  "simplification": "teleportAction,openDoors,selfWateringFlowerPots,noElectricalAction",
+  "env_step_limit": 100,
+  "tasks": [
+    {
+      "task_name": "boil",
+      "gold_len_median": 41,
+      "gold_lengths": [
+        39,
+        31,
+        50,
+        42,
+        41
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "change-the-state-of-matter-of",
+      "gold_len_median": 28,
+      "gold_lengths": [
+        26,
+        28,
+        37,
+        39,
+        22
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "chemistry-mix",
+      "gold_len_median": 16,
+      "gold_lengths": [
+        25,
+        21,
+        16,
+        16,
+        16
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "chemistry-mix-paint-secondary-color",
+      "gold_len_median": 21,
+      "gold_lengths": [
+        21,
+        7,
+        15,
+        25,
+        21
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "chemistry-mix-paint-tertiary-color",
+      "gold_len_median": 22,
+      "gold_lengths": [
+        22,
+        15,
+        29,
+        32,
+        20
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "find-animal",
+      "gold_len_median": 10,
+      "gold_lengths": [
+        10,
+        12,
+        8,
+        6,
+        10
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "find-living-thing",
+      "gold_len_median": 10,
+      "gold_lengths": [
+        10,
+        12,
+        8,
+        6,
+        10
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "find-non-living-thing",
+      "gold_len_median": 5,
+      "gold_lengths": [
+        5,
+        7,
+        3,
+        5,
+        5
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "find-plant",
+      "gold_len_median": 10,
+      "gold_lengths": [
+        10,
+        12,
+        12,
+        10,
+        10
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "freeze",
+      "gold_len_median": 35,
+      "gold_lengths": [
+        26,
+        28,
+        37,
+        39,
+        35
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "grow-fruit",
+      "gold_len_median": 81,
+      "gold_lengths": [
+        63,
+        81,
+        83,
+        67,
+        83
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "grow-plant",
+      "gold_len_median": 67,
+      "gold_lengths": [
+        63,
+        66,
+        69,
+        67,
+        68
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "identify-life-stages-1",
+      "gold_len_median": 30,
+      "gold_lengths": [
+        41,
+        30,
+        40,
+        27,
+        29
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "identify-life-stages-2",
+      "gold_len_median": 14.0,
+      "gold_lengths": [
+        16,
+        17,
+        12,
+        10
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "inclined-plane-determine-angle",
+      "gold_len_median": 57,
+      "gold_lengths": [
+        55,
+        57,
+        57,
+        97,
+        93
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "inclined-plane-friction-named-surfaces",
+      "gold_len_median": 53,
+      "gold_lengths": [
+        51,
+        53,
+        53,
+        55,
+        51
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "inclined-plane-friction-unnamed-surfaces",
+      "gold_len_median": 180,
+      "gold_lengths": [
+        178,
+        180,
+        180,
+        206,
+        202
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "lifespan-longest-lived",
+      "gold_len_median": 6,
+      "gold_lengths": [
+        6,
+        8,
+        4,
+        2,
+        6
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "lifespan-longest-lived-then-shortest-lived",
+      "gold_len_median": 7,
+      "gold_lengths": [
+        7,
+        9,
+        5,
+        3,
+        7
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "lifespan-shortest-lived",
+      "gold_len_median": 6,
+      "gold_lengths": [
+        6,
+        8,
+        4,
+        2,
+        6
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    },
+    {
+      "task_name": "measure-melting-point-known-substance",
+      "gold_len_median": 28,
+      "gold_lengths": [
+        28,
+        31,
+        24,
+        29,
+        19
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "measure-melting-point-unknown-substance",
+      "gold_len_median": 90,
+      "gold_lengths": [
+        32,
+        94,
+        90,
+        94,
+        70
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "melt",
+      "gold_len_median": 42,
+      "gold_lengths": [
+        34,
+        42,
+        45,
+        53,
+        21
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "mendelian-genetics-known-plant",
+      "gold_len_median": 128,
+      "gold_lengths": [
+        130,
+        128,
+        145,
+        126,
+        127
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "mendelian-genetics-unknown-plant",
+      "gold_len_median": 131,
+      "gold_lengths": [
+        132,
+        132,
+        131,
+        125,
+        127
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": false
+    },
+    {
+      "task_name": "power-component",
+      "gold_len_median": null,
+      "gold_lengths": [],
+      "replay_scores": [],
+      "errors": [
+        {
+          "var": null,
+          "error": "load_error",
+          "msg": "Invalid simplification. Task 'power-component' requires electrical actions but '--no-electrical' was provided."
+        }
+      ],
+      "selected": false
+    },
+    {
+      "task_name": "power-component-renewable-vs-nonrenewable-energy",
+      "gold_len_median": null,
+      "gold_lengths": [],
+      "replay_scores": [],
+      "errors": [
+        {
+          "var": null,
+          "error": "load_error",
+          "msg": "Invalid simplification. Task 'power-component-renewable-vs-nonrenewable-energy' requires electrical actions but '--no-electrical' was provided."
+        }
+      ],
+      "selected": false
+    },
+    {
+      "task_name": "test-conductivity",
+      "gold_len_median": null,
+      "gold_lengths": [],
+      "replay_scores": [],
+      "errors": [
+        {
+          "var": null,
+          "error": "load_error",
+          "msg": "Invalid simplification. Task 'test-conductivity' requires electrical actions but '--no-electrical' was provided."
+        }
+      ],
+      "selected": false
+    },
+    {
+      "task_name": "test-conductivity-of-unknown-substances",
+      "gold_len_median": null,
+      "gold_lengths": [],
+      "replay_scores": [],
+      "errors": [
+        {
+          "var": null,
+          "error": "load_error",
+          "msg": "Invalid simplification. Task 'test-conductivity-of-unknown-substances' requires electrical actions but '--no-electrical' was provided."
+        }
+      ],
+      "selected": false
+    },
+    {
+      "task_name": "use-thermometer",
+      "gold_len_median": 20,
+      "gold_lengths": [
+        22,
+        18,
+        20,
+        16,
+        22
+      ],
+      "replay_scores": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "errors": [],
+      "selected": true
+    }
+  ]
+}

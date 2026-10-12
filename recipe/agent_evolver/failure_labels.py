@@ -1,36 +1,20 @@
 # Copyright 2026 Darwin-Agent
 # SPDX-License-Identifier: MIT
-"""Independent failure labels (visibility spec A1).
+"""Independent ALFWorld failure labels (visibility spec A1).
 
 A label is ground truth built from the *oracle*, never from the model's text:
-
-- **ALFWorld** — the expert plan's target object and the post-``take`` action,
-  read from the task's ``traj_data.json`` (``plan.high_pddl``).  ``find`` = the
-  agent never ``take``s the target; ``acquire`` = it ``take``s it but never
-  completes the next required expert action; ``other`` = anything else.
-- **gridgames** — the four env-state modes ``fell_in_hole`` / ``dead_push`` /
-  ``loop`` / ``budget``, recovered by *replaying* the recorded action sequence
-  through the bundle's ``ta_env.LevelEnv`` (deterministic, in-process, no model).
-
-These are the reference answers the rule tagger (A2) and the kev reviewer are
-both scored against.
+the ALFWorld expert plan's target object and the post-``take`` action, read
+from the task's ``traj_data.json`` (``plan.high_pddl``).  ``find`` = the agent
+never ``take``s the target; ``acquire`` = it ``take``s it but never completes
+the next required expert action; ``other`` = anything else.
 """
 from __future__ import annotations
 
 import json
-import os
-import sys
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import httpx
-
-_BUNDLE_DIR = Path(os.environ.get(
-    "EVOLVER_GRIDGAMES_DIR", "/mnt/llmshared-ssd-hd/shishuqing/gridgames")).resolve()
-if str(_BUNDLE_DIR) not in sys.path:
-    sys.path.insert(0, str(_BUNDLE_DIR))
-import ta_env  # noqa: E402  (bundle LevelEnv)
 
 
 # ── shared action parsing ─────────────────────────────────────────────────────
@@ -67,28 +51,6 @@ def parse_agent_action(action: str) -> tuple[str, str]:
     if len(toks) == 1:
         return (toks[0], "")
     return (toks[0], toks[1])
-
-
-def has_loop(actions: list[str]) -> bool:
-    """Deterministic loop test: a dominant direction collapse, or a repeated 2-cycle."""
-    acts = [a for a in actions if a]
-    n = len(acts)
-    if n < 4:
-        return False
-    top, top_n = Counter(acts).most_common(1)[0]
-    if top_n >= 3 and top_n / n >= 0.5:
-        return True
-    for i in range(n - 5):
-        a, b = acts[i], acts[i + 1]
-        if a == b:
-            continue
-        rep, j = 1, i + 2
-        while j + 1 <= n - 1 and acts[j] == a and acts[j + 1] == b:
-            rep += 1
-            j += 2
-        if rep >= 3:
-            return True
-    return False
 
 
 # ── ALFWorld: label from the expert plan (traj_data.json) ─────────────────────
@@ -170,34 +132,3 @@ def gamefile_order(env_url: str, seed: int = 1234) -> list[str]:
     r = httpx.get(f"{env_url}/gamefiles", params={"seed": seed}, timeout=60.0)
     r.raise_for_status()
     return r.json()["gamefiles"]
-
-
-# ── gridgames: label by replaying the recorded actions ────────────────────────
-
-def gridgames_label(game: str, level: dict, actions: list[str | None]) -> str:
-    """Replay a failed gridgame episode -> the authoritative 4-way mode.
-
-    ``actions`` = per-step action strings (``None`` = parse_fail).  A won episode
-    returns ``"won"`` (callers only label failures).  ``level`` is the bundle's
-    level dict for that ``level_id``.
-    """
-    env = ta_env.LevelEnv(level)
-    for a in actions:
-        if env.done:  # the rollout loop stops at done (success / fell_in_hole)
-            break
-        env.step(a)
-    rep = env.report()
-    if rep["success"]:
-        return "won"
-    if game == "frozenlake":
-        # "fell_in_hole" is strictly the player actually falling (player -> None);
-        # a player who is merely *unreachable* (fl_steps_to_go is None) budgeted
-        # out alive and falls through to loop/budget below.
-        if env.player is None:
-            return "fell_in_hole"
-    else:  # sokoban: "dead" == box pushed into an unsolvable position
-        if rep["dead"]:
-            return "dead_push"
-    if has_loop([a for a in actions if a is not None]):
-        return "loop"
-    return "budget"

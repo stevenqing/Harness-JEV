@@ -10,7 +10,7 @@ Everything lives here:
   ``run_processor_dry_fire`` / ``run_tool_dry_fire`` /
   ``run_contract_check`` / ``run_literals_check`` / ``check_novelty``).
   Each writes a findings file under ``scratch_dir`` when it has anything
-  to report; strict-mode flavours raise ``StrictValidationError``.
+  to report.
 - ``EvolveValidator`` — orchestrator class used by ``MetaAgent.evolve``.
   Sequences three phases: **validity** (canonicalize → synthetic-task
   replay), **policy** (novelty + evidence, only when the structural
@@ -234,8 +234,6 @@ def _dummy_input_from_schema(schema: dict) -> dict:
 async def run_processor_dry_fire(
     cfg: "HarnessConfig",
     scratch_dir: Path,
-    *,
-    strict: bool = False,
 ) -> dict:
     """Invoke each custom processor's declared ``on_*`` hooks once with a
     minimal dummy event, to surface field-name typos and constructor
@@ -345,12 +343,6 @@ async def run_processor_dry_fire(
     out.write_text("\n".join(lines), encoding="utf-8")
     if likely_bugs:
         logger.warning("[dry_fire] %d likely bug(s) in custom processors — see %s", len(likely_bugs), out)
-    if strict and likely_bugs:
-        raise StrictValidationError(
-            kind="processor_dryfire",
-            message=f"{len(likely_bugs)} likely bug(s) in custom processors — see {out}",
-            findings_path=out,
-        )
     return {
         "likely_bugs": len(likely_bugs),
         "notes": len(notes),
@@ -361,8 +353,6 @@ async def run_processor_dry_fire(
 async def run_tool_dry_fire(
     cfg: "HarnessConfig",
     scratch_dir: Path,
-    *,
-    strict: bool = False,
 ) -> dict:
     """Call each custom ``@tool`` with dummy args and catch definite bugs
     (ImportError / NameError / SyntaxError in fn body)."""
@@ -449,12 +439,6 @@ async def run_tool_dry_fire(
     out.write_text("\n".join(lines), encoding="utf-8")
     if likely_bugs:
         logger.warning("[dry_fire] %d likely bug(s) in custom tools — see %s", len(likely_bugs), out)
-    if strict and likely_bugs:
-        raise StrictValidationError(
-            kind="tool_dryfire",
-            message=f"{len(likely_bugs)} likely bug(s) in custom tools — see {out}",
-            findings_path=out,
-        )
     return {
         "likely_bugs": len(likely_bugs),
         "notes": len(notes),
@@ -468,15 +452,11 @@ async def run_tool_dry_fire(
 async def run_contract_check(
     cfg: "HarnessConfig",
     scratch_dir: Path,
-    *,
-    strict: bool = False,
 ) -> dict:
     """Exercise custom processors' messages-mutating hooks against
     fixtures and record contract violations.
 
-    Writes ``scratch_dir/CONTRACT_VIOLATIONS.md`` on finding. When
-    ``strict`` is True, raises ``StrictValidationError`` after writing
-    the file.
+    Writes ``scratch_dir/CONTRACT_VIOLATIONS.md`` on finding.
     """
     from ..core.contract_check import ContractViolation, check_processor_contract
     from ..core.harness import _instantiate_proc
@@ -546,12 +526,6 @@ async def run_contract_check(
         len(by_proc),
         out,
     )
-    if strict:
-        raise StrictValidationError(
-            kind="contract",
-            message=f"{len(findings)} contract violation(s) across {len(by_proc)} processor(s) — see {out}",
-            findings_path=out,
-        )
     return {
         "violations": len(findings),
         "processors": len(by_proc),
@@ -581,7 +555,6 @@ async def run_literals_check(
     output_dir: Path,
     scratch_dir: Path,
     *,
-    strict: bool = False,
     extra_patterns: list[tuple[str, "re.Pattern[str]"]] | None = None,
 ) -> dict:
     """Scan authored tools and processors for task-specific hardcoded
@@ -666,12 +639,6 @@ async def run_literals_check(
     lines.append("")
     out.write_text("\n".join(lines), encoding="utf-8")
 
-    if strict and len(findings) >= _LITERAL_STRICT_THRESHOLD:
-        raise StrictValidationError(
-            kind="task_specific_literals",
-            message=f"{len(findings)} task-specific literal(s) in authored tools/processors — see {out}",
-            findings_path=out,
-        )
     return {
         "findings": len(findings),
         "threshold": _LITERAL_STRICT_THRESHOLD,
@@ -874,7 +841,6 @@ class EvolveValidator:
         inner_model: "ModelConfig",
         memo_path: Path | None = None,
         replay_model: "ModelConfig | None" = None,
-        replay_max_steps: int | None = None,
         replay_max_cost_usd: float | None = None,
         replay_timeout_s: float = 20.0,
         require_evidence: bool = True,
@@ -882,7 +848,6 @@ class EvolveValidator:
         self._inner_model = inner_model
         self._memo_path = memo_path
         self._replay_model = replay_model or inner_model
-        self._replay_max_steps = replay_max_steps
         self._replay_max_cost_usd = replay_max_cost_usd
         self._replay_timeout_s = replay_timeout_s
         self._require_evidence = require_evidence
@@ -896,7 +861,6 @@ class EvolveValidator:
         output_dir: Path,
         elapsed: float,
         compute_changeset_fn: Any,
-        decision_lever: str | None = None,
     ) -> ValidateOutcome:
         """Execute validity → policy → advisory.
 
@@ -932,8 +896,6 @@ class EvolveValidator:
             self._novelty(scratch_dir, out_yaml, reports)
             if self._require_evidence:
                 self._evidence(scratch_dir, out_yaml, diff, reports)
-            if decision_lever is not None:
-                self._decision_lever(scratch_dir, out_yaml, decision_lever, reports)
         else:
             logger.info("[validate] noop round (empty changeset) — skipping policy phase")
 
@@ -1024,10 +986,8 @@ class EvolveValidator:
                 canon_cfg,
                 scratch_dir,
                 replay_model=self._replay_model,
-                max_steps=self._replay_max_steps,
                 max_cost_usd=self._replay_max_cost_usd,
                 timeout_s=self._replay_timeout_s,
-                replay_mode="synthetic_task",
             )
         except StrictValidationError as exc:
             reports.append(
@@ -1054,7 +1014,7 @@ class EvolveValidator:
         reports: list[ValidateReport],
     ) -> None:
         """Block the round if custom processors violate the hook-mutation contract."""
-        result = await run_contract_check(canon_cfg, scratch_dir, strict=False)
+        result = await run_contract_check(canon_cfg, scratch_dir)
         violations = result.get("violations", 0)
         if violations > 0:
             findings_path = Path(result["artifact"]) if result.get("artifact") else None
@@ -1220,66 +1180,6 @@ class EvolveValidator:
 
         reports.append(ValidateReport(phase="policy", check="evidence", ok=True))
 
-    def _decision_lever(
-        self,
-        scratch_dir: Path,
-        out_yaml: Path,
-        decision_lever: str,
-        reports: list[ValidateReport],
-    ) -> None:
-        """enforce mode: the authored lever(s) must equal ``decision_lever``.
-
-        Reads the ``lever:`` tags in ``candidates.md`` and the latest journal
-        entry's ``levers`` frontmatter; any mismatch is a hard rejection — the
-        System-1 lever decision is binding, not an overrideable prior.
-        """
-        decision_lever = decision_lever.lower()
-        findings_path = scratch_dir / "DECISION_LEVER_FAIL.md"
-
-        def _fail(offenders: list[str]) -> None:
-            findings_path.write_text(
-                "# System-1 Lever Gate Failure\n\n"
-                f"The System-1 decision model bound this round's lever to "
-                f"`{decision_lever}`, but the authored round used lever(s) "
-                f"{offenders}. In `--decision-mode enforce` the lever decision is "
-                "binding: re-author the config within the bound lever, or rerun "
-                "in `--decision-mode prior` to demote it to an overrideable prior.\n",
-                encoding="utf-8",
-            )
-            reports.append(
-                ValidateReport(
-                    phase="policy",
-                    check="decision_lever",
-                    ok=False,
-                    reason=f"lever {offenders} != bound {decision_lever}",
-                    findings_path=findings_path,
-                )
-            )
-            raise RuntimeError(f"decision-lever gate: {offenders} != {decision_lever}. See {findings_path}.")
-
-        observed: list[str] = []
-
-        candidates_path = scratch_dir / "candidates.md"
-        if candidates_path.is_file():
-            text = candidates_path.read_text(encoding="utf-8", errors="replace")
-            observed += [m.lower() for m in re.findall(r"lever:\s*([a-zA-Z_-]+)", text)]
-
-        if self._memo_path is not None:
-            try:
-                from .journal import latest_entry
-
-                latest = latest_entry(self._memo_path)
-                if latest is not None:
-                    observed += [v.lower() for v in latest.levers]
-            except Exception as exc:  # noqa: BLE001 — best-effort
-                logger.warning("[validate] could not read journal levers: %s", exc)
-
-        offenders = sorted({v for v in observed if v != decision_lever})
-        if offenders:
-            _fail(offenders)
-
-        reports.append(ValidateReport(phase="policy", check="decision_lever", ok=True))
-
     # ----- Phase 3: advisory (never blocks) ----------------------------------
 
     async def _literals_advisory(
@@ -1289,7 +1189,7 @@ class EvolveValidator:
         reports: list[ValidateReport],
     ) -> None:
         try:
-            report = await run_literals_check(output_dir, scratch_dir, strict=False)
+            report = await run_literals_check(output_dir, scratch_dir)
         except Exception as exc:  # noqa: BLE001 — advisory must never block
             logger.warning("[validate] literals advisory skipped: %s", exc)
             reports.append(
@@ -1371,8 +1271,8 @@ def _cli_dry_fire(argv: list[str]) -> int:
         return 1
 
     async def _run() -> dict:
-        proc_report = await run_processor_dry_fire(cfg, scratch, strict=False)
-        tool_report = await run_tool_dry_fire(cfg, scratch, strict=False)
+        proc_report = await run_processor_dry_fire(cfg, scratch)
+        tool_report = await run_tool_dry_fire(cfg, scratch)
         total_likely = proc_report["likely_bugs"] + tool_report["likely_bugs"]
         return {
             "ok": total_likely == 0,
@@ -1400,7 +1300,7 @@ def _cli_contract(argv: list[str]) -> int:
         print(json.dumps({"ok": False, "error": f"config failed canonicalize: {type(exc).__name__}: {exc}"}))
         return 1
 
-    report = asyncio.run(run_contract_check(cfg, scratch, strict=False))
+    report = asyncio.run(run_contract_check(cfg, scratch))
     result = {"ok": report["violations"] == 0, **report}
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["ok"] else 1
@@ -1413,7 +1313,7 @@ def _cli_literals(argv: list[str]) -> int:
     scratch = Path(argv[1])
     scratch.mkdir(parents=True, exist_ok=True)
 
-    report = asyncio.run(run_literals_check(output_dir, scratch, strict=False))
+    report = asyncio.run(run_literals_check(output_dir, scratch))
     ok = report["findings"] < report["threshold"]
     result = {"ok": ok, **report}
     print(json.dumps(result, ensure_ascii=False))

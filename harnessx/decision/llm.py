@@ -23,7 +23,7 @@ import re
 from typing import Any, Sequence
 
 from ..core.events import Message
-from .types import ChooseQ, Decision, DiscreteDecisionModel, JudgeQ, Question
+from .types import Decision, JudgeQ, Question
 
 _log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class LlmDecisionBackend:
 
     ``provider`` is an already-constructed :class:`BaseModelProvider`
     (``AnthropicProvider`` or ``LiteLLMProvider``) — the same instance the runner
-    hands to ``MetaAgent``.  Unlike kev/semif (one logit readout per state), each
+    hands to ``MetaAgent``.  Unlike kev (one logit readout per state), each
     ``decide`` is one *generative* call, so this is far more expensive per
     trajectory — that cost is precisely the point of the ablation.
     """
@@ -53,7 +53,7 @@ class LlmDecisionBackend:
 
     def __init__(self, provider: Any = None, base_url: str | None = None, **kwargs: Any) -> None:
         # ``base_url``/``**kwargs`` are accepted-and-ignored so get_decision_model
-        # can instantiate this the same way it instantiates kev/semif.
+        # can instantiate this the same way it instantiates kev.
         if provider is None:
             raise ValueError(
                 "LlmDecisionBackend requires `provider` (a BaseModelProvider instance) "
@@ -75,6 +75,10 @@ class LlmDecisionBackend:
                 Message(role="user", content=user),
             ],
             tools=[],
+        )
+        _log.info(
+            "meta backend decide: questions=%d in_tokens=%d out_tokens=%d",
+            len(questions), event.usage.input_tokens, event.usage.output_tokens,
         )
         parsed = _parse_json(event.content)
         if parsed is None:

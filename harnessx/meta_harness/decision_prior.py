@@ -3,8 +3,9 @@
 """System-1 decision-model pre-analysis of rollout trajectories (Mode A).
 
 Before the meta-LLM reads trajectories (SOUL step 3), a cheap discrete-decision
-model (kev / semif / anyjev …) reads each *failed* trajectory and emits a
-probability vector over benchmark-specific failure modes.  That vector is written
+model (kev, or any other discrete-decision backend) reads each *failed*
+trajectory and emits a probability vector over benchmark-specific failure modes.
+That vector is written
 as a machine-rendered prior that the meta-LLM reads *and may override* — it never
 replaces the LLM's own diagnosis, it seeds it.
 
@@ -23,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from ..decision import ChooseQ, Decision, JudgeQ, Question, get_decision_model
+from ..decision import ChooseQ, Decision, Question, get_decision_model
 from ..textutil import clip_text
 
 _log = logging.getLogger(__name__)
@@ -125,16 +126,6 @@ def _choose_aggregate(rows: Sequence[PriorRow], idx: int) -> Decision:
             totals[name] = totals.get(name, 0.0) + p
     n = len(rows) or 1
     return Decision.for_choose({name: tot / n for name, tot in totals.items()})
-
-
-def aggregate_choices(*, rows: Sequence[PriorRow], idx: int) -> Decision:
-    """Round-level argmax of a ChooseQ column (for ``enforce`` runners).
-
-    Raises ``ValueError`` on empty ``rows`` — no trajectories means no prior.
-    """
-    if not rows:
-        raise ValueError("cannot aggregate a choice over zero trajectories")
-    return _choose_aggregate(rows, idx)
 
 
 def render_priors_markdown(

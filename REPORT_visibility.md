@@ -4,6 +4,7 @@
 > 本报告覆盖已完成的 S2 基座 + Track A(A1/A2 gate GA + kev 先验注入六轮) + Track B(B1)。
 > **A3（三臂 3 seeds）已停 + rule 臂归档退役**（Phase 2a，见 §5），P3/P4 判 N/A。**B2 押后**（spec 缺失，见 §9）。
 > **规模扫描（2B/0.8B 三轴）已停**（代码精简前主动 kill，0.8B WS 中止）：2B ALF/WS 已出、0.8B ALF 地板 0（三臂 6 轮全 0.000 + 4 探针全 0）——见 §4.5。
+> **2026-10-11 追加**：noul 三臂 ablation + constant-prior「结构 vs 数值」（§4.6）、task 翻转率替代 `predicted_affected` 的归因降噪（§4.7）、「诊断去随机化」收束（§10.4）、被否定的 kev ranker co-evolution（§12）。
 
 ---
 
@@ -235,6 +236,55 @@ Once you've finished your reasoning, you should choose an admissible action for 
 2. **kev 相对增益也缩**：4B 上 prior−llm ≈ +.06~.07，2B 上只剩 +.03（ALF +.031 / WS +.033），量级掉进 64-task 噪声。
 3. **enforce 持续最弱**：所有有信号的 cell 里 enforce held-out 全垫底/近垫底，与 4B 结论「硬绑定不赢」一致。
 
+### 4.6 noul-向量 prior 的三臂 ablation + constant-prior 控制（结构 vs 数值）
+
+> 把「kev 打 noul 向量 prior」的新方法拆三臂 + 一个控制实验，问「先验里是结构（诊断表）在起作用，还是数值（kev 概率值）在起作用」。全部 temp=0 / ALFWorld 64task / 6 轮 held-in + 单轮 held-out 探针。
+
+**完整 attribution（held-in best / held-out）**：
+
+| 臂 | 先验内容 | held-in best | held-out |
+|---|---|---|---|
+| llm | 无 prior | .484 | .656 |
+| constant-prior | lens 结构（无 lever）+ 数值全 0.5 | .812 (R5) | .922 |
+| fixed-pred (B) | lens + 固定手写 lever + kev 数值 | .719 | .703 |
+| full prior (incumbent) | lens + meta 诱导 lever + kev 数值 | .797 | .844 |
+| lens-only (A) | lens 结构（无 lever）+ kev 数值 | .891 | .875 |
+| meta-scorer (C) | lens + meta 诱导 lever + meta 打分 | .938 | .922 |
+
+**「结构 vs 数值」三链对照（同结构、只变数值）**：
+
+```
+llm（无结构、无数值）        .484
+constant-prior（结构 + 0.5） .812   ← 结构单独 +33 点
+lens-only（结构 + 真数值）   .891   ← 数值再加 +8 点
+```
+
+- **结构贡献 +33 点、数值贡献 +8 点，结构 : 数值 ≈ 4 : 1**。
+- held-out 上 constant-prior .922 反超 lens-only .875（在单轮 probe ±2-4 点噪声边缘，不当「抹平更好」证据），关键是稳在 .88–.92 带、绝没掉向 .656。
+
+**定论**：先验靠「结构」（失败轨迹诊断表 + 文本定性判断喂给 meta）不靠「数值」（kev 打的 p(true)）。把数值全抹成 0.5 进化几乎无损。kev 的价值在定性诊断结构、不在打分精度，且该结构 harness 侧就能造（0.5 占位都行）——进一步收紧 §10.3 的定位「kev = 诊断/critic 格，弱判别读头」。
+
+数据：`runs/evolve/ov3xcp_0.5_*`、`ov3xab_{lensonly,fixedpred,metascorer}_*`、`ov3xn_{prior,llm}_heldin`；实现 `constant_prior_control.sh` + `decision_prior.py::constant_prior`。
+
+### 4.7 用 task 翻转率替代 `predicted_affected`（归因降噪）
+
+> kev ranker Step 0b 唯一正面信号的落地（见 §12）。把 journal back-fill 里 meta 写的 `predicted_affected`（≈随机）换成「task 历史翻转率 top-k」。零训练、零新 rollout 依赖，纯用进化日志的统计量。
+
+**两级验证**：
+
+**① 离线（GO）**：task 翻转率（B1）作为「这次会不会翻盘」的预测，AUC 全面碾压 meta 的 `predicted_affected`（B2）：
+
+| stratum | fliprate AUC | meta AUC | Δ（CI 下限） |
+|---|---|---|---|
+| ALF 4B | **0.784** | 0.508 | +0.273（0.226） |
+| WS 4B | **0.932** | 0.558 | +0.368（0.334） |
+| ALF 2B | 0.950 | 0.566 | +0.384 |
+| WS 2B | 0.967 | 0.519 | +0.448 |
+
+**② 真跑 A/B（§3 代码）**：两臂都是 kev prior，唯一变量 `--task-fliprate-path`（meta 臂 `""` 禁用 → 归因用 meta predicted；rate 臂默认 → fliprate top-k）。ALF 4B heldin、3 轮、temp=0。**直接指标（归因命中率）**：rate 臂 R1 run 内同 k=10，fliprate top-k 命中真实 flipped **3/10（precision 0.30）** vs meta predicted **0/10**（真实 flipped=5 个 `{0,11,47,49,60}`）；meta 臂 meta predicted 26 个才命中 3（0.115）。代码接线正确（meta 臂 `fliprate_predicted=[]`、rate 臂 top-10）。
+
+**结论（诚实边界）**：fliprate 归因「更准」已证（与离线 AUC 一致），是**正确的诊断降噪**；但「更准的归因 → 更高 pass rate」这条因果链**未被证明**——间接指标被 meta 随机性污染，单 seed 3 轮测不出。三行弧线（方向性参考、不作结论）：meta 臂 R0 .391→R1 .406→R2 .656；rate 臂 R0 .359→R1 .312(reject→revert)→**R2 .734**（rate 臂 R2 反而更高，但因 R1 accept/reject 分叉 + meta 随机，不能归因到 fliprate）。落地：fliprate 归因作为 journal 默认行为保留（零成本、确定性、确定更准），价值在让 meta 下一轮读到的诊断字段从随机变准，增益与其他 lever 协同显现，不期待它单独跳档。`--task-fliprate-path` 默认 `data/predicted_affected_ablation/task_fliprate.json`。
+
 ---
 
 ## 5. Track A — A3（三臂 3 seeds）—— 已停 + rule 臂归档退役
@@ -331,6 +381,34 @@ Once you've finished your reasoning, you should choose an admissible action for 
 
 **定位**：jev 是「诊断/critic」这一格把 System-2（强生成自省）换成 System-1（弱冻结判别读头）的实现；概念上对应 verifier-in-the-loop / weak-to-strong，但语义错位两点——verifier 判「对错」、jev 判「为什么错」；verifier 当 fitness 用、jev 从不当 fitness（fitness 永远是环境）。经验结论：harness evolution 的诊断模块，「判别式弱读头 + 软先验」比「生成式强自省 + 硬裁决」更稳。
 
+### 10.4 诊断去随机化（把三条线串成一条主张）
+
+§4.6（结构 > 数值）、§4.7（fliprate 归因）和 §4.1–4.3（kev 先验）指向同一个更大的主张：
+
+> **harness evolution 的「诊断」环节，用廉价、确定、可离线的信号替代 meta 的随机自省——不是因为判别信号「更准」，而是因为它们「更便宜、更稳、零随机」。**
+
+诊断环节的三个输入，各自的噪声源与替代：
+
+| 诊断输入 | 现状（噪声源） | 我们的替代 | 证据 |
+|---|---|---|---|
+| 「失败机制」标签 | meta 读轨迹（贵、随机、base-rate 失真） | kev 判别读头（廉价、确定） | prior > llm（.844 vs .656） |
+| 先验的数值精度 | kev 打的 p(true)（弱读头精度有限） | 结构本身（0.5 占位都行） | constant-prior .812 / .922 |
+| 「预期受影响 task」 | meta 写的 `predicted_affected`（≈随机） | task 历史翻转率（纯统计） | fliprate precision 0.30 vs 0.00 |
+
+**诚实的定位**：+41 点（llm .484 → lens-only .891）里，结构占 ~33、kev 数值占 ~8。所以「我们的方法更好」的正确讲法是**成本/方差的故事**，不是「kev 打分更准」——meta（deepseek）精度更高（诊断 1.0/0.905 vs kev 更低）。kev 不可替代的价值是 **29× 快、确定性、无偏、可离线、可当 rollout 闸**；fliprate 甚至不需要模型，纯统计量就把「预期受影响 task」从随机变准。二者共同证明：**诊断环节整体应「去随机化」，弱冻结的判别/统计信号作为廉价确定的结构载体，强模型只在合成决策上出手。**
+
 ## 11. 安全
 
 token/key/secret 不进 report/log/commit。本报告及所有产物均无密钥。
+
+---
+
+## 12. 被否定的方向：kev ranker co-evolution（两连败）
+
+> 把 kev 当「候选排序器 + 逐 task pass 预测器」训（meta 当 teacher 蒸馏，数据来自进化日志）。**结论 = 不写训练 spec**，方向终止。唯一幸存信号 = B1 task 翻转率（已落地为 §4.7）。
+
+**Step 0（验证泄漏，NO-GO）**：样本 870（flipped 592 / regressed 278，13 run 59 相邻配对）。full AUC 两切分（held-out task / held-out run）都 **1.000**。捷径检查暴露真相：**state-only（去 diff）1.000、shuffled-diff 1.000、diff-only 0.723**——信号全在轨迹、diff 无关。根因 = 构造性混淆：flip/regress 子集内 `label == not(src_pass)`，而 state 渲染含 `exit_reason`/`eval_reason`（"max_steps" vs "won"）把 src_pass 直接泄进输入，模型读「源轨迹是否通过」就满分，根本不读 diff。
+
+**Step 0b（双轴退化，前提二结构性 FAIL）**：改设计后（state 去 pass/fail 字段 + 修复表前提验证），前提二 FAIL：修复表交互 LR p = ALF 0.9999 / WS 1.0000（完全不显著）。根因 = 双轴退化——改动层 **99% 是 instruction**（99/103 非 no-op 对；configuration 4、control 0、action 0），失败类型 **99.7% 是 mechanical**（ALF 1760 vs 6 capability_gap；WS 514 vs 6）→ 交互表实质 1×1，假设不可检验。模型阶梯 L2 ≤ L1（ALF 0.744 vs 0.747、WS 0.803 vs 0.810，diff CI 含 0）。
+
+**结论链**：Step 0 是验证泄漏（模型抄 src_pass）、Step 0b 是双轴退化（meta 只改 guidance 文本、失败全同质 mechanical）——两次都指向「这批 13 run 数据没有『失败类型 × 改动层』的变异可训」。kev ranker 方向需换数据源或改设计（如 src 恒失败 → 预测 flip vs stay-fail）才谈得上训练。交付物 `data/kev_ranker_s0/`、`data/kev_ranker_s0b/`（含 secret scan clean）。

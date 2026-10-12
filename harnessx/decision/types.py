@@ -14,7 +14,7 @@ of* this vocabulary; callers never see a backend's native wire format.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol, Sequence, Union
 
 
