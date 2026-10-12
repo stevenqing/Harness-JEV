@@ -123,3 +123,6 @@ benchmarks/webshop/official_webshop/web_agent_site/envs/chromedriver
 
 # multi-node transient completion markers (cloud job IDs in filename)
 recipe/agent_evolver/multi_node/.done_*
+
+# Archived experiment data (step0b/step0 raw replays + train/eval jsonl, ~400MB — kept on disk, not in git)
+archive/data/
